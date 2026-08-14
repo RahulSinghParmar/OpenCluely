@@ -487,9 +487,22 @@ class ApplicationController {
     });
 
     // Raw PCM audio captured by the renderer's Web Audio API (Windows Whisper path)
+    let audioChunkCount = 0;
+    
     ipcMain.on("audio-chunk", (_event, data) => {
       if (data && data.buffer) {
-        speechService.handleAudioChunkFromRenderer(Buffer.from(data.buffer));
+        audioChunkCount++;
+        
+        if (audioChunkCount === 1 || audioChunkCount % 100 === 0) {
+          console.log('[AUDIO-IPC] Received renderer PCM', {
+            chunkCount: audioChunkCount,
+            bytes: data.buffer.byteLength
+          });
+        }
+        
+        speechService.handleAudioChunkFromRenderer(
+          Buffer.from(data.buffer)
+        );
       }
     });
 

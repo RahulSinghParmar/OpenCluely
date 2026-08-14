@@ -642,6 +642,11 @@ class MainWindowUI {
     }
 
     handleRecordingStarted() {
+        logger.info('RENDERER recording-started received', {
+            component: 'MainWindowUI',
+            platform: navigator.platform,
+            isRecording: this.isRecording
+        });
         this.isRecording = true;
         if (this.micButton) {
             this.micButton.classList.add('recording');
@@ -680,6 +685,15 @@ class MainWindowUI {
         try {
             this._stopRendererAudioCapture();
 
+            logger.info('RENDERER requesting microphone permission', {
+                component: 'MainWindowUI',
+                mediaDevicesAvailable: !!navigator.mediaDevices,
+                getUserMediaAvailable: !!(
+                    navigator.mediaDevices &&
+                    navigator.mediaDevices.getUserMedia
+                )
+            });
+            
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     echoCancellation: true,
@@ -689,6 +703,15 @@ class MainWindowUI {
                 }
             });
             this._mediaStream = stream;
+            logger.info('RENDERER microphone permission granted', {
+                component: 'MainWindowUI',
+                trackCount: stream.getAudioTracks().length,
+                tracks: stream.getAudioTracks().map(track => ({
+                    label: track.label,
+                    enabled: track.enabled,
+                    readyState: track.readyState
+                }))
+            });
 
             const audioContext = new (window.AudioContext || window.webkitAudioContext)({
                 sampleRate: 16000
@@ -699,17 +722,33 @@ class MainWindowUI {
             const bufferSize = 4096;
             const scriptNode = audioContext.createScriptProcessor(bufferSize, 1, 1);
             this._scriptNode = scriptNode;
-
+            
+            let audioChunkCount = 0;
             scriptNode.onaudioprocess = (event) => {
                 if (!this.isRecording || !window.electronAPI || !window.electronAPI.sendAudioChunk) {
                     return;
                 }
+                
                 const inputData = event.inputBuffer.getChannelData(0);
+                
                 const pcm16 = new Int16Array(inputData.length);
+                
                 for (let i = 0; i < inputData.length; i++) {
                     const s = Math.max(-1, Math.min(1, inputData[i]));
                     pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
                 }
+                
+                audioChunkCount++;
+                
+                if (audioChunkCount === 1 || audioChunkCount % 100 === 0) {
+                    logger.info('RENDERER sending microphone PCM', {
+                        component: 'MainWindowUI',
+                        chunkCount: audioChunkCount,
+                        samples: pcm16.length,
+                        bytes: pcm16.byteLength
+                    });
+                }
+                
                 window.electronAPI.sendAudioChunk(pcm16.buffer);
             };
 
@@ -720,7 +759,9 @@ class MainWindowUI {
         } catch (error) {
             logger.error('Failed to start renderer audio capture', {
                 component: 'MainWindowUI',
-                error: error.message
+                error: error.message,
+                name: error.name,
+                stack: error.stack
             });
             // Notify main process so it can stop the recording state
             try {

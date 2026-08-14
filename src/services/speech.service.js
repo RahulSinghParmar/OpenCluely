@@ -585,15 +585,31 @@ class SpeechService extends EventEmitter {
     }
 
     this.isRecording = true;
-    this.emit('recording-started');
     this.emit('status', 'Azure recording started');
     this._cleanup();
-
+    
     try {
+      // macOS/Windows: microphone is captured by the renderer.
+      // Linux: microphone is captured natively with arecord/sox.
+      this.useRendererCapture =
+      process.platform === 'win32' ||
+      process.platform === 'darwin';
+      
+      // Create the Azure push stream BEFORE telling the renderer
+      // to start sending microphone PCM data.
       this.pushStream = sdk.AudioInputStream.createPushStream();
       this.audioConfig = sdk.AudioConfig.fromStreamInput(this.pushStream);
-      this._startMicrophoneCapture();
-      this.recognizer = new sdk.SpeechRecognizer(this.speechConfig, this.audioConfig);
+      
+      if (!this.useRendererCapture) {
+        this._startMicrophoneCapture();
+      }
+      
+      this.recognizer = new sdk.SpeechRecognizer(
+        this.speechConfig,
+        this.audioConfig
+      );
+      // Notify renderer only after the audio pipeline is ready.
+      this.emit('recording-started');
     } catch (error) {
       logger.error('Failed to start Azure recording session', { error: error.message });
       this.emit('error', `Audio configuration failed: ${error.message}`);
@@ -788,14 +804,32 @@ class SpeechService extends EventEmitter {
    * the current Whisper segment buffer.
    */
   handleAudioChunkFromRenderer(chunk) {
-    if (!this.isRecording || this.provider !== 'whisper' || !this.useRendererCapture) {
+    if (!this.isRecording || !this.useRendererCapture) {
       return;
     }
+    
     if (!chunk || !chunk.length) {
       return;
     }
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    this._ingestWhisperAudio(buffer);
+    
+    const buffer = Buffer.isBuffer(chunk)
+    ? chunk
+    : Buffer.from(chunk);
+    
+    if (this.provider === 'azure' && this.pushStream) {
+      try {
+        this.pushStream.write(buffer);
+      } catch (error) {
+        logger.error('Error writing renderer audio to Azure push stream', {
+          error: error.message
+        });
+      }
+      return;
+    }
+    
+    if (this.provider === 'whisper') {
+      this._ingestWhisperAudio(buffer);
+    }
   }
 
   /**
