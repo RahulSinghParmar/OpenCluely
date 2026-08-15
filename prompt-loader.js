@@ -6,7 +6,7 @@ class PromptLoader {
     this.prompts = new Map();
     this.promptsLoaded = false;
     this.skillPromptSent = new Set();
-    // Focus only on DSA
+    // Only coding skills receive a programming-language injection.
     this.skillsRequiringProgrammingLanguage = ['dsa'];
   }
 
@@ -28,7 +28,7 @@ class PromptLoader {
       for (const file of files) {
         if (file.endsWith('.md')) {
           const skillName = path.basename(file, '.md');
-          if (skillName !== 'dsa') continue; // only keep DSA
+          if (!['dsa', 'amazon-dct'].includes(skillName)) continue;
           const filePath = path.join(promptsDir, file);
           const promptContent = fs.readFileSync(filePath, 'utf8');
           
@@ -328,6 +328,11 @@ STRICT REQUIREMENTS:
       'data-structures': 'dsa',
       'algorithms': 'dsa',
       'data-structures-algorithms': 'dsa',
+      'amazon-dct': 'amazon-dct',
+      'amazon dct': 'amazon-dct',
+      'dct': 'amazon-dct',
+      'data-center': 'amazon-dct',
+      'data-center-technician': 'amazon-dct',
       'behavioral': 'behavioral',
       'behavioral-interview': 'behavioral',
       'behavior': 'behavioral',
@@ -368,7 +373,7 @@ STRICT REQUIREMENTS:
     if (!this.promptsLoaded) {
       this.loadPrompts();
     }
-    return ['dsa'];
+    return Array.from(this.prompts.keys()).sort();
   }
 
   /**

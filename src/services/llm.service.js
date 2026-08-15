@@ -2,6 +2,7 @@ const { GoogleGenAI } = require('@google/genai');
 const logger = require('../core/logger').createServiceLogger('LLM');
 const config = require('../core/config');
 const { promptLoader } = require('../../prompt-loader');
+const { formatAmazonDctRoutingContext } = require('./amazon-dct-classifier');
 
 class LLMService {
   constructor() {
@@ -60,6 +61,13 @@ class LLMService {
 
   applyGenerationDefaults(request, overrides = {}) {
     request.generationConfig = this.getGenerationConfig({ ...(request.generationConfig || {}), ...overrides });
+    return request;
+  }
+
+  applySkillOutputLimit(request, activeSkill) {
+    if (activeSkill === 'amazon-dct') {
+      request.generationConfig.maxOutputTokens = 240;
+    }
     return request;
   }
 
@@ -154,6 +162,7 @@ class LLMService {
       };
 
       this.applyGenerationDefaults(request);
+      this.applySkillOutputLimit(request, activeSkill);
 
       if (skillPrompt && skillPrompt.trim().length > 0) {
         request.systemInstruction = { parts: [{ text: skillPrompt }] };
@@ -254,6 +263,7 @@ class LLMService {
         ]
       };
       this.applyGenerationDefaults(geminiRequest);
+      this.applySkillOutputLimit(geminiRequest, activeSkill);
       if (skillPrompt && skillPrompt.trim().length > 0) {
         geminiRequest.systemInstruction = { parts: [{ text: skillPrompt }] };
       }
@@ -298,6 +308,9 @@ class LLMService {
   }
 
   formatImageInstruction(activeSkill, programmingLanguage) {
+    if (activeSkill === 'amazon-dct') {
+      return 'Analyze this image for an Amazon Data Center Technician interview-practice question. Extract the question, classify it internally by DCT domain, and provide the interview-ready response required by the system instructions. Do not write code unless the question specifically asks for it.';
+    }
     const langNote = programmingLanguage ? ` Use only ${programmingLanguage.toUpperCase()} for any code.` : '';
     return `Analyze this image for a ${activeSkill.toUpperCase()} question. Extract the problem concisely and provide the best possible solution with explanation and final code.${langNote}`;
   }
@@ -576,6 +589,7 @@ class LLMService {
     };
 
     this.applyGenerationDefaults(request);
+    this.applySkillOutputLimit(request, activeSkill);
 
     // Use the skill prompt that already has programming language injected
     if (requestComponents.shouldUseModelMemory && requestComponents.skillPrompt) {
@@ -605,11 +619,18 @@ class LLMService {
     };
 
     this.applyGenerationDefaults(request);
+    // The prompt requires a maximum of 120 spoken words. This token cap
+    // leaves room for the required headings without allowing essay-length
+    // answers when a model ignores the instruction.
+    this.applySkillOutputLimit(request, activeSkill);
 
     // Use the skill prompt from context (which may already include programming language)
     if (skillContext.skillPrompt) {
+      const systemPrompt = activeSkill === 'amazon-dct'
+        ? skillContext.skillPrompt + formatAmazonDctRoutingContext(text)
+        : skillContext.skillPrompt;
       request.systemInstruction = {
-        parts: [{ text: skillContext.skillPrompt }]
+        parts: [{ text: systemPrompt }]
       };
       
       logger.debug('Using skill context prompt as system instruction', {
@@ -686,6 +707,7 @@ class LLMService {
     };
 
     this.applyGenerationDefaults(request);
+    this.applySkillOutputLimit(request, activeSkill);
 
     // Add intelligent filtering system instruction
     const intelligentPrompt = this.getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage);
@@ -718,6 +740,7 @@ class LLMService {
     };
 
     this.applyGenerationDefaults(request);
+    this.applySkillOutputLimit(request, activeSkill);
 
   // For chat/transcription messages, DO NOT include the full skill prompt; use only the intelligent filter prompt
   const intelligentPrompt = this.getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage);
@@ -779,6 +802,11 @@ class LLMService {
   }
 
   getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage) {
+    if (activeSkill === 'amazon-dct') {
+      const dctPrompt = promptLoader.getSkillPrompt('amazon-dct');
+      return `${dctPrompt}\n\nThe input is a spoken interview-practice question. Answer it directly; do not acknowledge listening or reject it as irrelevant.`;
+    }
+
     let prompt = `# Intelligent Transcription Response System
 
 Assume you are asked a question in ${activeSkill.toUpperCase()} mode. Your job is to intelligently respond to question/message with appropriate brevity.
@@ -1328,6 +1356,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
 
     const fallbackResponses = {
       'dsa': 'This appears to be a data structures and algorithms problem. Consider breaking it down into smaller components and identifying the appropriate algorithm or data structure to use.',
+      'amazon-dct': 'I could not reach the interview-practice model. Please try again; when it is available I will provide a structured Amazon DCT practice answer.',
       'system-design': 'For this system design question, consider scalability, reliability, and the trade-offs between different architectural approaches.',
       'programming': 'This looks like a programming challenge. Focus on understanding the requirements, edge cases, and optimal time/space complexity.',
       'default': 'I can help analyze this content. Please ensure your Gemini API key is properly configured for detailed analysis.'
@@ -1359,7 +1388,8 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
       'presentation': ['slide', 'audience', 'public speaking', 'presentation', 'nervous'],
       'data-science': ['data', 'model', 'machine learning', 'statistics', 'analytics', 'python', 'pandas'],
       'devops': ['deployment', 'ci/cd', 'docker', 'kubernetes', 'infrastructure', 'monitoring'],
-      'negotiation': ['negotiate', 'compromise', 'agreement', 'terms', 'conflict resolution']
+      'negotiation': ['negotiate', 'compromise', 'agreement', 'terms', 'conflict resolution'],
+      'amazon-dct': ['network', 'server', 'linux', 'hardware', 'rack', 'aws', 'dns', 'vlan', 'active directory', 'interview', 'amazon', 'troubleshoot']
     };
 
     const textLower = text.toLowerCase();

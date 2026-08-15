@@ -112,7 +112,7 @@ class ApplicationController {
   constructor() {
     this.isReady = false;
     this.starting = false;
-    this.activeSkill = "dsa";
+    this.activeSkill = "amazon-dct";
   // Default to C++ so language is enforced from first run
   this.codingLanguage = "cpp";
     this.speechAvailable = false;
@@ -394,6 +394,7 @@ class ApplicationController {
       "CommandOrControl+Shift+V": () => windowManager.toggleVisibility(),
       "CommandOrControl+Shift+I": () => windowManager.toggleInteraction(),
       "CommandOrControl+Shift+C": () => windowManager.switchToWindow("chat"),
+      "CommandOrControl+Shift+A": () => this.startInterviewMode(),
       "CommandOrControl+Shift+\\": () => this.clearSessionMemory(),
       "CommandOrControl+,": () => windowManager.showSettings(),
       "Alt+A": () => windowManager.toggleInteraction(),
@@ -863,6 +864,7 @@ class ApplicationController {
 
     ipcMain.handle("update-active-skill", (event, skill) => {
       this.activeSkill = skill;
+      sessionManager.setActiveSkill(skill);
       windowManager.broadcastToAllWindows("skill-changed", { skill });
       return { success: true };
     });
@@ -938,6 +940,7 @@ class ApplicationController {
     // Handle update skill
     ipcMain.on("update-skill", (event, skill) => {
       this.activeSkill = skill;
+      sessionManager.setActiveSkill(skill);
       windowManager.broadcastToAllWindows("skill-updated", { skill });
     });
 
@@ -984,6 +987,23 @@ class ApplicationController {
         logger.error("Error starting speech recognition:", error);
       }
     }
+  }
+
+  startInterviewMode() {
+    this.activeSkill = "amazon-dct";
+    sessionManager.setActiveSkill(this.activeSkill);
+    windowManager.broadcastToAllWindows("skill-updated", { skill: this.activeSkill });
+    windowManager.showChatWindow();
+
+    const status = speechService.getStatus();
+    if (!status.isRecording) {
+      this.toggleSpeechRecognition();
+    }
+
+    logger.info("Amazon DCT interview mode started", {
+      shortcut: "CommandOrControl+Shift+A",
+      speechWasRecording: status.isRecording,
+    });
   }
 
   clearSessionMemory() {
@@ -1043,6 +1063,7 @@ class ApplicationController {
   navigateSkill(direction) {
     const availableSkills = [
       "dsa",
+      "amazon-dct",
     ];
 
     const currentIndex = availableSkills.indexOf(this.activeSkill);
@@ -1603,7 +1624,7 @@ class ApplicationController {
     // distinguish "unset" from "stale value from a previous load".
     return {
       codingLanguage: this.codingLanguage || "cpp",
-      activeSkill: this.activeSkill || "dsa",
+      activeSkill: this.activeSkill || "amazon-dct",
       appIcon: this.appIcon || "terminal",
       selectedIcon: this.appIcon || "terminal",
       windowGap: windowManager.windowGap,
@@ -1620,6 +1641,7 @@ class ApplicationController {
       whisperResponseTarget: process.env.WHISPER_RESPONSE_TARGET || "both",
       whisperSegmentMs: process.env.WHISPER_SEGMENT_MS || "4000",
       geminiKey: process.env.GEMINI_API_KEY || "",
+      geminiModel: config.get('llm.gemini.model'),
 
       azureConfigured: !!process.env.AZURE_SPEECH_KEY && !!process.env.AZURE_SPEECH_REGION,
       speechAvailable: this.speechAvailable
@@ -1637,6 +1659,7 @@ class ApplicationController {
       }
       if (settings.activeSkill) {
         this.activeSkill = settings.activeSkill;
+        sessionManager.setActiveSkill(settings.activeSkill);
         windowManager.broadcastToAllWindows("skill-updated", {
           skill: settings.activeSkill,
         });
@@ -1691,6 +1714,10 @@ class ApplicationController {
       if (settings.geminiKey !== undefined) {
         envUpdates.GEMINI_API_KEY = settings.geminiKey;
       }
+      if (settings.geminiModel !== undefined) {
+        envUpdates.GEMINI_MODEL = settings.geminiModel;
+        config.set('llm.gemini.model', settings.geminiModel);
+      }
 
       // Capture the previous whisper command BEFORE persisting — persistEnvUpdates
       // mutates process.env in place, so comparing afterwards would always read
@@ -1705,10 +1732,11 @@ class ApplicationController {
       // connection button in the onboarding wizard fails with
       // "Service not initialized" because the client was first created
       // at app startup, before any key was set.
-      if (settings.geminiKey !== undefined && envUpdates.GEMINI_API_KEY !== undefined) {
+      if ((settings.geminiKey !== undefined && envUpdates.GEMINI_API_KEY !== undefined) ||
+          settings.geminiModel !== undefined) {
         try {
           llmService.initializeClient();
-          logger.info("LLM service reinitialized after Gemini key update");
+          logger.info("LLM service reinitialized after Gemini configuration update");
         } catch (e) {
           logger.warn("Failed to reinitialize LLM service after Gemini key update", {
             error: e.message

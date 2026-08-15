@@ -40,8 +40,11 @@ class ConfigManager {
 
       llm: {
         gemini: {
-          model: 'gemini-3.1-flash-lite',
-          fallbackModels: ['gemini-2.5-flash-lite', 'gemini-3.5-flash'],
+          // A user-selected GEMINI_MODEL takes precedence. Pro is the default
+          // for interview practice; fallbacks preserve availability if it is
+          // temporarily unavailable for the account or region.
+          model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
+          fallbackModels: ['gemini-3.6-flash', 'gemini-3.5-flash-lite'],
           maxRetries: 3,
           timeout: 30000,
           fallbackEnabled: true,
