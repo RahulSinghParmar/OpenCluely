@@ -2,9 +2,9 @@
 
 # OpenCluely
 
-**The invisible AI interview copilot.**
+**A local-first AI interview-practice workspace.**
 
-Real-time AI help on a stealth overlay that screen sharing cannot see. Ask by voice or screenshot, and get clear answers that stream in as you need them.
+Practice technical, behavioral, and role-specific interviews with voice, chat, screenshots, and concise streamed answers.
 
 <p>
   <a href="https://github.com/RahulSinghParmar/OpenCluely/releases/latest"><img src="https://img.shields.io/github/v/release/RahulSinghParmar/OpenCluely?style=for-the-badge&label=Latest&color=111111&labelColor=000000" alt="Latest release" /></a>
@@ -28,7 +28,11 @@ https://github.com/user-attachments/assets/896a7140-1e85-405d-bfbe-e05c9f3a816b
 
 OpenCluely is a desktop app for technical interviews and practice. It places a small overlay on your screen that recording and conferencing tools do not capture. You can speak a question or take a screenshot, and the AI answers in real time. The answer streams into a floating window and an optional chat panel, with clean code blocks and syntax highlighting.
 
-It is free and open source. Processing stays on your machine, and the only thing that leaves your device is the request you send to the AI provider.
+It is free and open source. Application state and diagnostics remain local; Gemini and Azure receive only the requests required for the features you enable. Use it for preparation and only where external assistance is permitted.
+
+### Current release: v1.8.8
+
+The current release adds a universal interview-skill catalogue, Amazon DCT practice, company and response-mode settings, streaming performance diagnostics, macOS Space/full-screen overlay behavior, improved Azure microphone handling, and safer log export. See [v1.8.8](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v1.8.8).
 
 ## Highlights
 
@@ -38,8 +42,10 @@ It is free and open source. Processing stays on your machine, and the only thing
 - **Configurable streamed answers.** Route voice replies to chat, the floating overlay, or both.
 - **Direct image analysis.** Screenshots go straight to Gemini for visual reasoning, with no slow OCR step in between.
 - **Session memory.** The whole conversation is remembered, so follow-ups, edge cases, and optimizations keep their context.
-- **Language aware.** Tailored answers for C++, C, Python, Java, and JavaScript.
-- **Stealthy by design.** Runs under ordinary system names, ships with no telemetry, and keeps your session local.
+- **Interview profiles.** Amazon DCT, DevOps, SDET, Backend Engineer, STAR, Leadership Principles, and 30+ additional skill profiles.
+- **Response modes.** Quick, interview-ready, detailed, STAR, and troubleshooting formats.
+- **Language aware.** Python, Java, JavaScript, TypeScript, Go, Rust, C, C++, C#, Kotlin, Swift, PHP, Ruby, Bash, and PowerShell.
+- **Local diagnostics.** View latency metrics, open logs, or copy redacted diagnostics from Settings.
 - **Cross platform.** Pre-built installers for Windows and Linux (.deb and AppImage). macOS runs from source in one command.
 
 ## Download
@@ -51,10 +57,11 @@ Pre-built installers are published with every release. These links always point 
 | Windows | [Setup .exe](https://github.com/RahulSinghParmar/OpenCluely/releases/latest) | NSIS installer. Adds a Start Menu shortcut. |
 | Linux (Debian or Ubuntu) | [.deb](https://github.com/RahulSinghParmar/OpenCluely/releases/latest) | Pulls system deps automatically (Python, ffmpeg, GTK). |
 | Linux (universal) | [.AppImage](https://github.com/RahulSinghParmar/OpenCluely/releases/latest) | No install. Run `chmod +x` then launch. |
+| macOS | [v1.8.8 release](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v1.8.8) | Source archives are available now; DMG/ZIP assets require a completed GitHub asset upload. |
 
-> **macOS:** there is no pre-built download. The app is unsigned and un-notarized, so macOS Gatekeeper blocks it as "damaged and can't be opened." Run OpenCluely from source instead — see [Quick start](#quick-start). It is a one-line `./setup.sh` once Node.js is installed.
+> **macOS:** builds are currently unsigned and un-notarized. Run from source for the most reliable experience. When DMG/ZIP assets are attached to the release, macOS may require Finder’s **Open** confirmation on first launch.
 
-Every build is produced automatically on GitHub Actions and ships with SHA-256 checksums. Each release also lists the full set of commits it includes.
+Each GitHub tag includes automatic source ZIP and TAR archives. Release assets are attached separately after local validation.
 
 Project updates and releases are published at [RahulSinghParmar/OpenCluely](https://github.com/RahulSinghParmar/OpenCluely).
 
@@ -178,7 +185,10 @@ Skills are now defined through a central catalog instead of a DSA-only model. Ev
 - AI response window with markdown and syntax highlighting
 - Global shortcuts for capture, visibility, interaction, chat, and settings
 - Session memory and a full chat UI
-- Language picker and a DSA skill prompt
+- Universal skill catalogue with Amazon DCT, DevOps, SDET, Backend, STAR, Leadership Principles, HR, education, and general AI profiles
+- Company focus, response modes, theme, compact mode, and expanded programming-language settings
+- Performance metrics and redacted diagnostic-log export
+- macOS panel-based overlay and chat behavior across Spaces and full-screen applications
 - Optional Azure Speech and local Whisper, with an auto hiding mic button
 - Multi-monitor and area capture support
 - Window binding and positioning
@@ -190,6 +200,7 @@ Skills are now defined through a central catalog instead of a DSA-only model. Ev
 - Auto typing of code snippets into editors and IDEs
 - Export of conversation history to markdown or PDF
 - Deeper stealth, including process name randomization
+- Optional local candidate-profile and document knowledge management (not shipped yet)
 
 ## Troubleshooting
 
