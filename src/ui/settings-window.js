@@ -18,6 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const whisperSegmentMsInput = document.getElementById('whisperSegmentMs');
     const geminiKeyInput = document.getElementById('geminiKey');
     const geminiModelSelect = document.getElementById('geminiModel');
+    const openLogsButton = document.getElementById('openLogsButton');
+    const copyLogsButton = document.getElementById('copyLogsButton');
     const windowGapInput = document.getElementById('windowGap');
     const codingLanguageSelect = document.getElementById('codingLanguage');
     const activeSkillSelect = document.getElementById('activeSkill');
@@ -89,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (whisperResponseTargetSelect) whisperResponseTargetSelect.value = settings.whisperResponseTarget || 'both';
         if (whisperSegmentMsInput) whisperSegmentMsInput.value = settings.whisperSegmentMs || '';
         if (geminiKeyInput) geminiKeyInput.value = settings.geminiKey || '';
-        if (geminiModelSelect) geminiModelSelect.value = settings.geminiModel || 'gemini-3.1-pro-preview';
+        if (geminiModelSelect) geminiModelSelect.value = settings.geminiModel || 'gemini-3.1-flash-lite';
         if (windowGapInput) windowGapInput.value = settings.windowGap || '';
 
         // Set C++ as default if no coding language is specified
@@ -237,6 +239,20 @@ document.addEventListener('DOMContentLoaded', () => {
             saveSettings();
             // Also update the main window
             window.api.send('update-skill', e.target.value);
+        });
+    }
+
+    if (openLogsButton) {
+        openLogsButton.addEventListener('click', async () => {
+            const result = await window.electronAPI.openLogFolder();
+            if (!result.success) alert(`Could not open logs: ${result.error}`);
+        });
+    }
+
+    if (copyLogsButton) {
+        copyLogsButton.addEventListener('click', async () => {
+            const result = await window.electronAPI.copyDiagnosticLogs();
+            if (result.success) alert('Diagnostics copied. Remove any sensitive information before sharing.');
         });
     }
 

@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   hideSettings: () => ipcRenderer.invoke('hide-settings'),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  openLogFolder: () => ipcRenderer.invoke('open-log-folder'),
+  copyDiagnosticLogs: () => ipcRenderer.invoke('copy-diagnostic-logs'),
 
   // First-run onboarding
   getFirstRunStatus: () => ipcRenderer.invoke('get-first-run-status'),

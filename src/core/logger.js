@@ -71,6 +71,10 @@ class Logger {
     };
   }
 
+  getLogDirectory() {
+    return this.logDir;
+  }
+
   getSystemMetrics() {
     return {
       memory: process.memoryUsage(),

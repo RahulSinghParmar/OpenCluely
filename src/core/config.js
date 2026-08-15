@@ -40,11 +40,11 @@ class ConfigManager {
 
       llm: {
         gemini: {
-          // A user-selected GEMINI_MODEL takes precedence. Pro is the default
-          // for interview practice; fallbacks preserve availability if it is
-          // temporarily unavailable for the account or region.
-          model: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
-          fallbackModels: ['gemini-3.6-flash', 'gemini-3.5-flash-lite'],
+          // A user-selected GEMINI_MODEL takes precedence. Flash-Lite is the
+          // reliable default for API keys without paid Pro quota; Pro remains
+          // selectable in Settings for accounts with billing enabled.
+          model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
+          fallbackModels: ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'],
           maxRetries: 3,
           timeout: 30000,
           fallbackEnabled: true,

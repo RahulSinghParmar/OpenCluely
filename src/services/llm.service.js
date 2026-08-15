@@ -71,6 +71,20 @@ class LLMService {
     return request;
   }
 
+  getUserFacingError(error) {
+    const message = String(error?.message || '');
+    if (message.includes('429') || /quota|resource_exhausted/i.test(message)) {
+      return 'Gemini API quota is unavailable for the selected model. In Settings, choose Gemini 3.1 Flash-Lite, or enable billing for Gemini Pro, then try again.';
+    }
+    if (/fetch failed|enotfound|network/i.test(message)) {
+      return 'OpenCluely could not reach Gemini. Check your internet connection, firewall, or VPN, then try again.';
+    }
+    if (/api key|401|403|auth/i.test(message)) {
+      return 'Gemini rejected the API key. Re-save a valid key in Settings and test the connection.';
+    }
+    return 'Gemini could not answer that request. Open Settings → Copy Diagnostics and try again.';
+  }
+
   extractTextFromCandidates(response) {
     // New @google/genai SDK exposes response.text as a convenience getter.
     if (response && typeof response.text === 'string' && response.text.trim().length > 0) {
@@ -871,7 +885,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
     const timeout = config.get('llm.gemini.timeout');
     const primaryModel = this.model;
     const fallbackModels = config.get('llm.gemini.fallbackModels') || [];
-    const modelsToTry = [primaryModel, ...fallbackModels];
+    const modelsToTry = [...new Set([primaryModel, ...fallbackModels])];
 
     logger.debug('Executing Gemini request', {
       hasModel: !!this.model,
@@ -1086,7 +1100,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
     const apiKey = config.getApiKey('GEMINI');
     const primaryModel = this.model;
     const fallbackModels = config.get('llm.gemini.fallbackModels') || [];
-    const modelsToTry = [primaryModel, ...fallbackModels];
+    const modelsToTry = [...new Set([primaryModel, ...fallbackModels])];
 
     let lastError = null;
 
@@ -1435,7 +1449,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
 
       const generationConfig = this.getGenerationConfig({ temperature: 0, maxOutputTokens: 64 });
       const fallbackModels = config.get('llm.gemini.fallbackModels') || [];
-      const modelsToTry = [this.model, ...fallbackModels];
+      const modelsToTry = [...new Set([this.model, ...fallbackModels])];
 
       let lastError = null;
       let result = null;
@@ -1566,7 +1580,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
     const apiKey = config.getApiKey('GEMINI');
     const primaryModel = config.get('llm.gemini.model');
     const fallbackModels = config.get('llm.gemini.fallbackModels') || [];
-    const modelsToTry = [primaryModel, ...fallbackModels];
+    const modelsToTry = [...new Set([primaryModel, ...fallbackModels])];
 
     logger.info('Using alternative HTTPS request method', { modelsToTry });
 

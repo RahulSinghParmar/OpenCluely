@@ -395,6 +395,7 @@ class ApplicationController {
       "CommandOrControl+Shift+I": () => windowManager.toggleInteraction(),
       "CommandOrControl+Shift+C": () => windowManager.switchToWindow("chat"),
       "CommandOrControl+Shift+A": () => this.startInterviewMode(),
+      "CommandOrControl+Q": () => app.quit(),
       "CommandOrControl+Shift+\\": () => this.clearSessionMemory(),
       "CommandOrControl+,": () => windowManager.showSettings(),
       "Alt+A": () => windowManager.toggleInteraction(),
@@ -743,6 +744,33 @@ class ApplicationController {
 
     ipcMain.handle("get-settings", () => {
       return this.getSettings();
+    });
+
+    ipcMain.handle("open-log-folder", async () => {
+      const { shell } = require("electron");
+      const logDirectory = logger.getLogDirectory();
+      const error = await shell.openPath(logDirectory);
+      return { success: !error, error: error || null, logDirectory };
+    });
+
+    ipcMain.handle("copy-diagnostic-logs", () => {
+      const { clipboard } = require("electron");
+      const logDirectory = logger.getLogDirectory();
+      const date = new Date().toISOString().slice(0, 10);
+      const paths = [
+        path.join(logDirectory, `application-${date}.log`),
+        path.join(logDirectory, `error-${date}.log`),
+      ];
+      const logs = paths.flatMap((logPath) => {
+        try {
+          const content = fs.readFileSync(logPath, "utf8");
+          return [`\n--- ${path.basename(logPath)} ---\n${content.slice(-16000)}`];
+        } catch (_) {
+          return [];
+        }
+      }).join("");
+      clipboard.writeText(logs || `No log entries found in ${logDirectory}`);
+      return { success: true, logDirectory, copiedCharacters: logs.length };
     });
 
     // First-run onboarding status — renderer can query to know whether
@@ -1167,8 +1195,13 @@ class ApplicationController {
         duration: Date.now() - startTime,
       });
 
-      windowManager.hideLLMResponse();
-      this.broadcastOCRError(error.message);
+      const userFacingError = llmService.getUserFacingError(error);
+      windowManager.showLLMResponse(userFacingError, {
+        skill: this.activeSkill,
+        usedFallback: true,
+        isError: true,
+      });
+      this.broadcastOCRError(userFacingError);
       
       sessionManager.addConversationEvent({
         role: 'system',
@@ -1240,10 +1273,15 @@ class ApplicationController {
         skill: this.activeSkill,
       });
 
-      windowManager.hideLLMResponse();
+      const userFacingError = llmService.getUserFacingError(error);
+      windowManager.showLLMResponse(userFacingError, {
+        skill: this.activeSkill,
+        usedFallback: true,
+        isError: true,
+      });
       sessionManager.addConversationEvent({
         role: 'system',
-        content: `LLM processing failed: ${error.message}`,
+        content: `LLM processing failed: ${userFacingError}`,
         action: 'llm_error',
         metadata: {
           error: error.message,
@@ -1251,7 +1289,7 @@ class ApplicationController {
         }
       });
 
-      this.broadcastLLMError(error.message);
+      this.broadcastLLMError(userFacingError);
     }
   }
 
