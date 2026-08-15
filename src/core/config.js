@@ -50,9 +50,6 @@ class ConfigManager {
           fallbackEnabled: true,
           enableFallbackMethod: true,
           generation: {
-            temperature: 0.7,
-            topK: 32,
-            topP: 0.9,
             maxOutputTokens: 4096,
             thinkingConfig: { thinkingBudget: 0 }
           }

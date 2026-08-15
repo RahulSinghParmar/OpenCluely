@@ -597,7 +597,9 @@ class SpeechService extends EventEmitter {
       
       // Create the Azure push stream BEFORE telling the renderer
       // to start sending microphone PCM data.
-      this.pushStream = sdk.AudioInputStream.createPushStream();
+      const streamFormat = sdk.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1);
+      this.pushStream = sdk.AudioInputStream.createPushStream(streamFormat);
+      this._rendererAudioChunkCount = 0;
       this.audioConfig = sdk.AudioConfig.fromStreamInput(this.pushStream);
       
       if (!this.useRendererCapture) {
@@ -630,6 +632,7 @@ class SpeechService extends EventEmitter {
     this.recognizer.recognized = (s, e) => {
       try {
         if (e.result.reason === sdk.ResultReason.RecognizedSpeech && e.result.text && e.result.text.trim()) {
+          logger.info('Azure speech recognized', { characters: e.result.text.trim().length });
           this.emit('transcription', e.result.text);
         }
       } catch (error) {
@@ -818,6 +821,14 @@ class SpeechService extends EventEmitter {
     
     if (this.provider === 'azure' && this.pushStream) {
       try {
+        this._rendererAudioChunkCount = (this._rendererAudioChunkCount || 0) + 1;
+        if (this._rendererAudioChunkCount === 1 || this._rendererAudioChunkCount % 50 === 0) {
+          logger.info('Renderer microphone audio received', {
+            chunks: this._rendererAudioChunkCount,
+            bytes: buffer.length,
+            rms: this._chunkRmsEnergy(buffer).toFixed(4),
+          });
+        }
         this.pushStream.write(buffer);
       } catch (error) {
         logger.error('Error writing renderer audio to Azure push stream', {
@@ -989,6 +1000,7 @@ class SpeechService extends EventEmitter {
       provider: this.provider,
       sessionDuration: `${sessionDuration}ms`
     });
+    this.emit('stop-requested', { provider: this.provider, sessionDuration });
 
     if (this.provider === 'azure' && this.recognizer) {
       try {
@@ -1073,7 +1085,10 @@ class SpeechService extends EventEmitter {
 
     if (this.audioConfig) {
       try {
-        if (typeof this.audioConfig.close === 'function') {
+        // Azure's recognizer owns a stream-input AudioConfig and closes it
+        // with the recognizer. Calling close again can make this SDK version
+        // dereference an already-cleared promise (`undefined.then`).
+        if (this.provider !== 'azure' && typeof this.audioConfig.close === 'function') {
           this.audioConfig.close();
         }
       } catch (error) {

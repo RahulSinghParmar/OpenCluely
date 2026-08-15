@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   formatSessionHistory: () => ipcRenderer.invoke('format-session-history'),
   sendChatMessage: (text) => ipcRenderer.invoke('send-chat-message', text),
   getSkillPrompt: (skillName) => ipcRenderer.invoke('get-skill-prompt', skillName),
+  getSkillCatalog: () => ipcRenderer.invoke('get-skill-catalog'),
   
   // Gemini LLM configuration
   setGeminiApiKey: (apiKey) => ipcRenderer.invoke('set-gemini-api-key', apiKey),
@@ -43,6 +44,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   openLogFolder: () => ipcRenderer.invoke('open-log-folder'),
   copyDiagnosticLogs: () => ipcRenderer.invoke('copy-diagnostic-logs'),
+  openScreenRecordingPreferences: () => ipcRenderer.invoke('open-screen-recording-preferences'),
+  getPerformanceMetrics: () => ipcRenderer.invoke('get-performance-metrics'),
+  recordPerformanceMetric: (name, durationMs, metadata) => ipcRenderer.send('record-performance-metric', { name, durationMs, metadata }),
 
   // First-run onboarding
   getFirstRunStatus: () => ipcRenderer.invoke('get-first-run-status'),
@@ -119,6 +123,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onRecordingStarted: (callback) => ipcRenderer.on('recording-started', callback),
   onRecordingStopped: (callback) => ipcRenderer.on('recording-stopped', callback),
   onCodingLanguageChanged: (callback) => ipcRenderer.on('coding-language-changed', callback),
+  onUiPreferencesChanged: (callback) => ipcRenderer.on('ui-preferences-changed', callback),
   onMainWindowShown: (callback) => ipcRenderer.on('main-window-shown', callback),
   
   // Generic receive method

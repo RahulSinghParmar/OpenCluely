@@ -20,13 +20,12 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "author": {
-    "name": "TechyCSR",
-    "email": "info@techycsr.dev",
-    "url": "https://techycsr.dev"
+    "name": "RahulSinghParmar",
+    "url": "https://github.com/RahulSinghParmar"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TechyCSR/OpenCluely"
+    "url": "https://github.com/RahulSinghParmar/OpenCluely"
   },
   "license": "ISC",
   "dependencies": {

@@ -75,8 +75,10 @@ app.commandLine.appendSwitch("disable-component-update");
 app.commandLine.appendSwitch("disable-domain-reliability");
 app.commandLine.appendSwitch("no-pings");
 
-const logger = require("./src/core/logger").createServiceLogger("MAIN");
+const appLogger = require("./src/core/logger");
+const logger = appLogger.createServiceLogger("MAIN");
 const config = require("./src/core/config");
+const performanceMetrics = require("./src/core/performance-metrics");
 const FirstRunManager = require("./src/core/first-run");
 
 // ── Global crash guard ──
@@ -107,14 +109,26 @@ const llmService = require("./src/services/llm.service");
 // Managers
 const windowManager = require("./src/managers/window.manager");
 const sessionManager = require("./src/managers/session.manager");
+const { getNavigableProfileIds, normalizeProfileId, isSupportedSkill } = require('./src/skills/profile-registry');
+const { skills: skillCatalog } = require('./src/skills/skill-catalog');
+const { isSupportedTechnology } = require('./src/skills/technology-registry');
 
 class ApplicationController {
   constructor() {
     this.isReady = false;
     this.starting = false;
     this.activeSkill = "amazon-dct";
-  // Default to C++ so language is enforced from first run
-  this.codingLanguage = "cpp";
+    // Default to C++ so language is enforced from first run
+    this.codingLanguage = "cpp";
+    this.interviewCompany = process.env.INTERVIEW_COMPANY || "general";
+    this.responseMode = process.env.RESPONSE_MODE || "interview";
+    this.uiTheme = process.env.UI_THEME || "dark";
+    this.compactMode = process.env.COMPACT_MODE === "true";
+    this.technologyContext = {
+      database: process.env.TECH_DATABASE || 'auto', cloud: process.env.TECH_CLOUD || 'auto',
+      containers: process.env.TECH_CONTAINERS || 'auto', infrastructure: process.env.TECH_INFRASTRUCTURE || 'auto'
+    };
+    llmService.setResponsePreferences({ company: this.interviewCompany, responseMode: this.responseMode, technologyContext: this.technologyContext });
     this.speechAvailable = false;
 
     // Utterance coalescing: VAD emits a transcript per natural pause, but a
@@ -124,7 +138,11 @@ class ApplicationController {
     this._utteranceBuffer = "";
     this._utteranceTimer = null;
     this._utteranceDispatchInFlight = false;
-    this._utteranceCoalesceMs = 800;
+    // A short debounce still merges Azure final fragments while avoiding a
+    // noticeable dead-air delay before the Gemini request starts.
+    this._utteranceCoalesceMs = 450;
+    this._utteranceStartedAt = null;
+    this._speechRecordingStartedAt = null;
 
     // First-run onboarding: detects missing .env / API key and triggers
     // a settings-window prompt on first launch so users don't have to
@@ -420,6 +438,7 @@ class ApplicationController {
 
   setupServiceEventHandlers() {
     speechService.on("recording-started", () => {
+      this._speechRecordingStartedAt = Date.now();
       windowManager.handleRecordingStarted();
     });
 
@@ -427,7 +446,18 @@ class ApplicationController {
       windowManager.handleRecordingStopped();
     });
 
+    speechService.on("stop-requested", ({ provider, sessionDuration }) => {
+      this._speechStopRequestedAt = Date.now();
+      performanceMetrics.record('speech_capture_session', sessionDuration, { provider });
+    });
+
     speechService.on("transcription", (text) => {
+      if (this._speechStopRequestedAt) {
+        performanceMetrics.record('speech_stt_finalize', Date.now() - this._speechStopRequestedAt, {
+          provider: speechService.provider, transcriptChars: String(text || '').length
+        });
+        this._speechStopRequestedAt = null;
+      }
       this.handleTranscriptionFragment(text);
     });
 
@@ -474,8 +504,16 @@ class ApplicationController {
       }
     });
     
-    ipcMain.handle("get-speech-availability", () => {
+  ipcMain.handle("get-speech-availability", () => {
       return speechService.isAvailable ? speechService.isAvailable() : false;
+  });
+
+    ipcMain.handle("get-skill-catalog", () => skillCatalog.map(({ id, name, category, knowledgeScope, responseStyle, displayFormat, latencyPreferences, languagePreferences }) => ({ id, name, category, knowledgeScope, responseStyle, displayFormat, latencyPreferences, languagePreferences })));
+
+    ipcMain.handle("get-performance-metrics", () => performanceMetrics.getSnapshot());
+    ipcMain.on("record-performance-metric", (_event, metric = {}) => {
+      if (typeof metric.name !== 'string' || !Number.isFinite(metric.durationMs)) return;
+      performanceMetrics.record(metric.name, metric.durationMs, metric.metadata || {});
     });
 
     ipcMain.handle("start-speech-recognition", () => {
@@ -746,16 +784,17 @@ class ApplicationController {
       return this.getSettings();
     });
 
+
     ipcMain.handle("open-log-folder", async () => {
       const { shell } = require("electron");
-      const logDirectory = logger.getLogDirectory();
+      const logDirectory = appLogger.getLogDirectory();
       const error = await shell.openPath(logDirectory);
       return { success: !error, error: error || null, logDirectory };
     });
 
     ipcMain.handle("copy-diagnostic-logs", () => {
       const { clipboard } = require("electron");
-      const logDirectory = logger.getLogDirectory();
+      const logDirectory = appLogger.getLogDirectory();
       const date = new Date().toISOString().slice(0, 10);
       const paths = [
         path.join(logDirectory, `application-${date}.log`),
@@ -769,8 +808,18 @@ class ApplicationController {
           return [];
         }
       }).join("");
-      clipboard.writeText(logs || `No log entries found in ${logDirectory}`);
-      return { success: true, logDirectory, copiedCharacters: logs.length };
+      const safeLogs = appLogger.redactText(logs);
+      clipboard.writeText(safeLogs || `No log entries found in ${logDirectory}`);
+      return { success: true, logDirectory, copiedCharacters: safeLogs.length };
+    });
+
+    ipcMain.handle("open-screen-recording-preferences", async () => {
+      if (process.platform !== "darwin") {
+        return { success: false, error: "Screen Recording preferences are only available on macOS." };
+      }
+      const { shell } = require("electron");
+      const error = await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture");
+      return { success: !error, error: error || null };
     });
 
     // First-run onboarding status — renderer can query to know whether
@@ -891,10 +940,12 @@ class ApplicationController {
     });
 
     ipcMain.handle("update-active-skill", (event, skill) => {
-      this.activeSkill = skill;
-      sessionManager.setActiveSkill(skill);
-      windowManager.broadcastToAllWindows("skill-changed", { skill });
-      return { success: true };
+      const normalizedSkill = normalizeProfileId(skill);
+      if (!isSupportedSkill(normalizedSkill)) return { success: false, error: "Unsupported skill" };
+      this.activeSkill = normalizedSkill;
+      sessionManager.setActiveSkill(normalizedSkill);
+      windowManager.broadcastToAllWindows("skill-changed", { skill: normalizedSkill });
+      return { success: true, skill: normalizedSkill };
     });
 
     ipcMain.handle("restart-app-for-stealth", () => {
@@ -967,9 +1018,14 @@ class ApplicationController {
 
     // Handle update skill
     ipcMain.on("update-skill", (event, skill) => {
-      this.activeSkill = skill;
-      sessionManager.setActiveSkill(skill);
-      windowManager.broadcastToAllWindows("skill-updated", { skill });
+      const normalizedSkill = normalizeProfileId(skill);
+      if (!isSupportedSkill(normalizedSkill)) {
+        logger.warn("Ignored unsupported skill change", { skill });
+        return;
+      }
+      this.activeSkill = normalizedSkill;
+      sessionManager.setActiveSkill(normalizedSkill);
+      windowManager.broadcastToAllWindows("skill-updated", { skill: normalizedSkill });
     });
 
     // Handle quit app (alternative method)
@@ -1089,10 +1145,7 @@ class ApplicationController {
   }
 
   navigateSkill(direction) {
-    const availableSkills = [
-      "dsa",
-      "amazon-dct",
-    ];
+    const availableSkills = getNavigableProfileIds();
 
     const currentIndex = availableSkills.indexOf(this.activeSkill);
     if (currentIndex === -1) {
@@ -1134,11 +1187,13 @@ class ApplicationController {
     }
 
     const startTime = Date.now();
+    let captureCompleted = false;
 
     try {
       windowManager.showLLMLoading();
 
-  const capture = await captureService.captureAndProcess();
+      const capture = await captureService.captureAndProcess();
+      captureCompleted = true;
 
       if (!capture.imageBuffer || !capture.imageBuffer.length) {
         windowManager.hideLLMResponse();
@@ -1149,8 +1204,7 @@ class ApplicationController {
       // Use image directly with LLM and active skill; do not send chat messages here
       const sessionHistory = sessionManager.getOptimizedHistory();
 
-      const skillsRequiringProgrammingLanguage = ['dsa'];
-      const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
+      const needsProgrammingLanguage = require('./prompt-loader').promptLoader.requiresProgrammingLanguage(this.activeSkill);
 
       this._responseSeq = (this._responseSeq || 0) + 1;
       const messageId = `img-${Date.now()}-${this._responseSeq}`;
@@ -1191,11 +1245,13 @@ class ApplicationController {
       });
     } catch (error) {
       logger.error("Screenshot OCR process failed", {
-        error: error.message,
+        reason: error.message,
         duration: Date.now() - startTime,
       });
 
-      const userFacingError = llmService.getUserFacingError(error);
+      const userFacingError = captureCompleted
+        ? llmService.getUserFacingError(error)
+        : error.message;
       windowManager.showLLMResponse(userFacingError, {
         skill: this.activeSkill,
         usedFallback: true,
@@ -1220,8 +1276,7 @@ class ApplicationController {
       sessionManager.addUserInput(text, 'llm_input');
 
       // Check if current skill needs programming language context
-      const skillsRequiringProgrammingLanguage = ['dsa'];
-      const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
+      const needsProgrammingLanguage = require('./prompt-loader').promptLoader.requiresProgrammingLanguage(this.activeSkill);
 
       this._responseSeq = (this._responseSeq || 0) + 1;
       const messageId = `chat-${Date.now()}-${this._responseSeq}`;
@@ -1312,6 +1367,7 @@ class ApplicationController {
     this._utteranceBuffer = this._utteranceBuffer
       ? `${this._utteranceBuffer} ${fragment}`
       : fragment;
+    if (!this._utteranceStartedAt) this._utteranceStartedAt = Date.now();
 
     if (this._utteranceTimer) {
       clearTimeout(this._utteranceTimer);
@@ -1346,10 +1402,12 @@ class ApplicationController {
     }
     this._utteranceBuffer = "";
     this._utteranceDispatchInFlight = true;
+    const utteranceStartedAt = this._utteranceStartedAt || Date.now();
+    this._utteranceStartedAt = null;
 
     try {
       const sessionHistory = sessionManager.getOptimizedHistory();
-      await this.processTranscriptionWithLLM(combined, sessionHistory);
+      await this.processTranscriptionWithLLM(combined, sessionHistory, utteranceStartedAt);
     } catch (error) {
       logger.error("Failed to process transcription with LLM", {
         error: error.message,
@@ -1364,7 +1422,7 @@ class ApplicationController {
     }
   }
 
-  async processTranscriptionWithLLM(text, sessionHistory) {
+  async processTranscriptionWithLLM(text, sessionHistory, utteranceStartedAt = Date.now()) {
     // Hoisted so the catch block can tie a fallback answer to the same UI
     // bubble the streaming start event created; otherwise a total failure
     // leaves an empty streamed bubble stranded next to the fallback message.
@@ -1394,8 +1452,7 @@ class ApplicationController {
       });
 
       // Check if current skill needs programming language context
-      const skillsRequiringProgrammingLanguage = ['dsa'];
-      const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
+      const needsProgrammingLanguage = require('./prompt-loader').promptLoader.requiresProgrammingLanguage(this.activeSkill);
 
       // Stream the answer progressively to the configured speech target.
       // A unique messageId ties the start/chunk/final events to one bubble so
@@ -1422,6 +1479,13 @@ class ApplicationController {
         }
       );
       llmResult.metadata = { ...llmResult.metadata, messageId };
+      const endToEndMs = Date.now() - utteranceStartedAt;
+      performanceMetrics.record('speech_to_answer', endToEndMs, {
+        activeSkill: this.activeSkill,
+        sttToFirstTokenMs: llmResult.metadata.firstTokenMs,
+        llmMs: llmResult.metadata.processingTime,
+        cacheHit: !!llmResult.metadata.cacheHit
+      });
 
       // Add LLM response to session memory
       sessionManager.addModelResponse(llmResult.response, {
@@ -1663,6 +1727,11 @@ class ApplicationController {
     return {
       codingLanguage: this.codingLanguage || "cpp",
       activeSkill: this.activeSkill || "amazon-dct",
+      interviewCompany: this.interviewCompany,
+      responseMode: this.responseMode,
+      uiTheme: this.uiTheme,
+      compactMode: this.compactMode,
+      technologyContext: this.technologyContext,
       appIcon: this.appIcon || "terminal",
       selectedIcon: this.appIcon || "terminal",
       windowGap: windowManager.windowGap,
@@ -1695,11 +1764,51 @@ class ApplicationController {
           language: settings.codingLanguage,
         });
       }
-      if (settings.activeSkill) {
-        this.activeSkill = settings.activeSkill;
-        sessionManager.setActiveSkill(settings.activeSkill);
+      if (settings.activeSkill && isSupportedSkill(settings.activeSkill)) {
+        const normalizedSkill = normalizeProfileId(settings.activeSkill);
+        this.activeSkill = normalizedSkill;
+        sessionManager.setActiveSkill(normalizedSkill);
         windowManager.broadcastToAllWindows("skill-updated", {
-          skill: settings.activeSkill,
+          skill: normalizedSkill,
+        });
+      } else if (settings.activeSkill) {
+        logger.warn("Ignored unsupported active skill in settings", { skill: settings.activeSkill });
+      }
+      const validCompanies = ["general", "amazon", "google", "microsoft", "meta", "apple", "nvidia", "netflix"];
+      const validResponseModes = ["quick", "interview", "detailed", "star", "troubleshooting"];
+      const validThemes = ["dark", "light"];
+      let preferencesChanged = false;
+      if (validCompanies.includes(settings.interviewCompany)) {
+        this.interviewCompany = settings.interviewCompany;
+        preferencesChanged = true;
+      }
+      if (validResponseModes.includes(settings.responseMode)) {
+        this.responseMode = settings.responseMode;
+        preferencesChanged = true;
+      }
+      if (validThemes.includes(settings.uiTheme)) {
+        this.uiTheme = settings.uiTheme;
+        preferencesChanged = true;
+      }
+      if (typeof settings.compactMode === "boolean") {
+        this.compactMode = settings.compactMode;
+        preferencesChanged = true;
+      }
+      for (const category of ["database", "cloud", "containers", "infrastructure"]) {
+        const value = settings.technologyContext?.[category];
+        if (isSupportedTechnology(category, value)) {
+          this.technologyContext[category] = value;
+          preferencesChanged = true;
+        }
+      }
+      if (preferencesChanged) {
+        llmService.setResponsePreferences({ company: this.interviewCompany, responseMode: this.responseMode, technologyContext: this.technologyContext });
+        windowManager.broadcastToAllWindows("ui-preferences-changed", {
+          interviewCompany: this.interviewCompany,
+          responseMode: this.responseMode,
+          uiTheme: this.uiTheme,
+          compactMode: this.compactMode,
+          technologyContext: this.technologyContext
         });
       }
       if (settings.appIcon) {
@@ -1755,6 +1864,16 @@ class ApplicationController {
       if (settings.geminiModel !== undefined) {
         envUpdates.GEMINI_MODEL = settings.geminiModel;
         config.set('llm.gemini.model', settings.geminiModel);
+      }
+      if (preferencesChanged) {
+        envUpdates.INTERVIEW_COMPANY = this.interviewCompany;
+        envUpdates.RESPONSE_MODE = this.responseMode;
+        envUpdates.UI_THEME = this.uiTheme;
+        envUpdates.COMPACT_MODE = String(this.compactMode);
+        envUpdates.TECH_DATABASE = this.technologyContext.database;
+        envUpdates.TECH_CLOUD = this.technologyContext.cloud;
+        envUpdates.TECH_CONTAINERS = this.technologyContext.containers;
+        envUpdates.TECH_INFRASTRUCTURE = this.technologyContext.infrastructure;
       }
 
       // Capture the previous whisper command BEFORE persisting — persistEnvUpdates

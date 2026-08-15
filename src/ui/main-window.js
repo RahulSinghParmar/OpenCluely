@@ -16,6 +16,8 @@ class MainWindowUI {
         this.micButton = null;
         this.isRecording = false;
         this.speechAvailable = false; // track availability
+        this.uiTheme = 'dark';
+        this.compactMode = false;
         this._popoverHideTimeout = null;
         // Renderer-side audio capture state (used for Whisper on Windows)
         this._audioContext = null;
@@ -26,8 +28,14 @@ class MainWindowUI {
         // Define available skills for navigation
         this.availableSkills = [
             'dsa',
-            'amazon-dct'
+            'amazon-dct',
+            'devops',
+            'sdet',
+            'backend-engineer',
+            'star',
+            'leadership-principles'
         ];
+        this.skillNames = {};
         
         this.init();
     }
@@ -36,6 +44,7 @@ class MainWindowUI {
         try {
             this.setupElements();
             this.setupEventListeners();
+            await this.loadSkillCatalog();
             
             // Load current skill from settings
             await this.loadCurrentSkill();
@@ -76,6 +85,7 @@ class MainWindowUI {
                 const settings = await window.electronAPI.getSettings();
                 if (settings && settings.activeSkill) {
                     this.currentSkill = settings.activeSkill;
+                    this.applyAppearance(settings.uiTheme, settings.compactMode);
                     logger.debug('Loaded current skill from settings', {
                         component: 'MainWindowUI',
                         skill: this.currentSkill
@@ -88,6 +98,24 @@ class MainWindowUI {
                 error: error.message
             });
         }
+    }
+
+    async loadSkillCatalog() {
+        try {
+            const catalog = await window.electronAPI?.getSkillCatalog?.();
+            if (!Array.isArray(catalog) || !catalog.length) return;
+            this.availableSkills = catalog.map(skill => skill.id);
+            this.skillNames = Object.fromEntries(catalog.map(skill => [skill.id, skill.name]));
+        } catch (error) {
+            logger.warn('Failed to load skill catalog; using built-in fallback', { error: error.message });
+        }
+    }
+
+    applyAppearance(theme, compact) {
+        this.uiTheme = theme === 'light' ? 'light' : 'dark';
+        this.compactMode = !!compact;
+        document.documentElement.dataset.theme = this.uiTheme;
+        document.body.classList.toggle('compact-mode', this.compactMode);
     }
 
     async loadCurrentInteractionState() {
@@ -272,13 +300,14 @@ class MainWindowUI {
         this.settingsIndicator = document.getElementById('settingsIndicator'); // Optional
         this.micButton = document.getElementById('micButton');
     this.infoButton = document.getElementById('infoButton');
+    this.quitButton = document.getElementById('quitButton');
     this.shortcutsPopover = document.getElementById('shortcutsPopover');
 
         // NEW: Screenshot button is the first .command-item without id
         const commandItems = document.querySelectorAll('.command-item');
         this.screenshotButton = commandItems && commandItems[0];
 
-    if (!this.statusDot || !this.skillIndicator || !this.micButton || !this.screenshotButton) {
+    if (!this.statusDot || !this.micButton || !this.screenshotButton) {
             throw new Error('Required UI elements not found');
         }
 
@@ -289,24 +318,16 @@ class MainWindowUI {
             }
         });
 
-        // Skill indicator click handler activates the selected practice skill.
-        this.skillIndicator.addEventListener('click', () => {
-            if (!this.isInteractive) return;
-            const newSkill = this.currentSkill;
-            if (window.electronAPI && window.electronAPI.updateActiveSkill) {
-                window.electronAPI.updateActiveSkill(newSkill).then(() => {
-                    this.handleSkillActivated(newSkill);
-                });
-            } else {
-                this.handleSkillActivated(newSkill);
-            }
+        this.quitButton?.addEventListener('click', () => {
+            if (window.electronAPI?.quit) window.electronAPI.quit();
         });
 
-        // Check for required elements (settingsIndicator is optional)
+        // Profiles, languages, and display preferences are deliberately kept in
+        // the Settings window so this overlay remains a compact control bar.
         if (this.settingsIndicator) {
             this.settingsIndicator.addEventListener('click', () => {
                 if (this.isInteractive) {
-                    this.showSettingsMenu();
+                    window.electronAPI?.showSettings?.();
                 }
             });
         }
@@ -315,11 +336,11 @@ class MainWindowUI {
         this.micButton.addEventListener('click', async () => {
             if (this.isInteractive && this.speechAvailable) {
                 try {
-                    if (this.isRecording) {
-                        await window.electronAPI.stopSpeechRecognition();
-                    } else {
-                        await window.electronAPI.startSpeechRecognition();
-                    }
+                    const status = this.isRecording
+                        ? await window.electronAPI.stopSpeechRecognition()
+                        : await window.electronAPI.startSpeechRecognition();
+                    if (status?.isRecording) this.handleRecordingStarted();
+                    else this.handleRecordingStopped();
                 } catch (error) {
                     logger.error('Speech recognition toggle failed', {
                         component: 'MainWindowUI',
@@ -335,44 +356,6 @@ class MainWindowUI {
                 this.loadSpeechAvailability();
             }
         });
-
-        // Language dropdown
-        this.languageSelect = document.getElementById('codingLanguage');
-        if (this.languageSelect) {
-            // Set default to C++ if no value is set
-            this.languageSelect.value = 'cpp';
-            
-            // Initialize with current setting
-            if (window.electronAPI && window.electronAPI.getSettings) {
-                window.electronAPI.getSettings().then(settings => {
-                    if (settings && settings.codingLanguage) {
-                        this.languageSelect.value = settings.codingLanguage;
-                    } else {
-                        // Save C++ as default if no language is set
-                        this.languageSelect.value = 'cpp';
-                        window.electronAPI.saveSettings({ codingLanguage: 'cpp' });
-                    }
-                }).catch(() => {
-                    // Fallback to C++ on error
-                    this.languageSelect.value = 'cpp';
-                });
-            }
-
-            this.languageSelect.addEventListener('change', (e) => {
-                const lang = e.target.value;
-                if (window.electronAPI && window.electronAPI.saveSettings) {
-                    window.electronAPI.saveSettings({ codingLanguage: lang });
-                }
-                // Resize for any width change
-                setTimeout(() => {
-                    const commandTab = document.querySelector('.command-tab');
-                    if (commandTab && window.electronAPI && window.electronAPI.resizeWindow) {
-                        const rect = commandTab.getBoundingClientRect();
-                        window.electronAPI.resizeWindow(Math.ceil(rect.width), Math.ceil(rect.height));
-                    }
-                }, 50);
-            });
-        }
 
         // Info button / shortcuts popover
         if (this.infoButton && this.shortcutsPopover) {
@@ -447,16 +430,9 @@ class MainWindowUI {
 
             // Listen for coding language changes from other windows
             window.electronAPI.onCodingLanguageChanged((event, data) => {
-                if (data && data.language && this.languageSelect) {
-                    // avoid clobbering if same value
-                    if (this.languageSelect.value !== data.language) {
-                        this.languageSelect.value = data.language;
-                    }
-                    logger.debug('Language updated from other window', {
-                        component: 'MainWindowUI',
-                        language: data.language
-                    });
-                }
+                if (data?.language) logger.debug('Language preference updated in Settings', {
+                    component: 'MainWindowUI', language: data.language
+                });
             });
 
             // Listen for main window shown event to refresh speech availability
@@ -509,6 +485,12 @@ class MainWindowUI {
         } else {
             logger.error('window.api not available - event listeners not set up!');
         }
+
+        if (window.electronAPI?.onUiPreferencesChanged) {
+            window.electronAPI.onUiPreferencesChanged((_event, preferences) => {
+                this.applyAppearance(preferences?.uiTheme, preferences?.compactMode);
+            });
+        }
         
         // Keyboard shortcuts
         this.setupKeyboardShortcuts();
@@ -522,6 +504,11 @@ class MainWindowUI {
         const skillNames = {
             'dsa': 'DSA',
             'amazon-dct': 'Amazon DCT',
+            'devops': 'DevOps',
+            'sdet': 'SDET',
+            'backend-engineer': 'Backend',
+            'star': 'STAR',
+            'leadership-principles': 'Leadership',
             'behavioral': 'Behavioral', 
             'sales': 'Sales',
             'presentation': 'Presentation',
@@ -719,6 +706,7 @@ class MainWindowUI {
                 sampleRate: 16000
             });
             this._audioContext = audioContext;
+            await audioContext.resume();
 
             const source = audioContext.createMediaStreamSource(stream);
             const bufferSize = 4096;
@@ -733,12 +721,7 @@ class MainWindowUI {
                 
                 const inputData = event.inputBuffer.getChannelData(0);
                 
-                const pcm16 = new Int16Array(inputData.length);
-                
-                for (let i = 0; i < inputData.length; i++) {
-                    const s = Math.max(-1, Math.min(1, inputData[i]));
-                    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                }
+                const pcm16 = this._to16kPcm(inputData, audioContext.sampleRate);
                 
                 audioChunkCount++;
                 
@@ -757,7 +740,11 @@ class MainWindowUI {
             source.connect(scriptNode);
             scriptNode.connect(audioContext.destination);
 
-            logger.info('Renderer audio capture started', { component: 'MainWindowUI' });
+            logger.info('Renderer audio capture started', {
+                component: 'MainWindowUI',
+                inputSampleRate: audioContext.sampleRate,
+                outputSampleRate: 16000
+            });
         } catch (error) {
             logger.error('Failed to start renderer audio capture', {
                 component: 'MainWindowUI',
@@ -770,6 +757,23 @@ class MainWindowUI {
                 await window.electronAPI.stopSpeechRecognition();
             } catch (_) { /* ignore */ }
         }
+    }
+
+    _to16kPcm(inputData, inputSampleRate) {
+        const targetSampleRate = 16000;
+        const ratio = inputSampleRate / targetSampleRate;
+        const outputLength = Math.max(1, Math.round(inputData.length / ratio));
+        const output = new Int16Array(outputLength);
+
+        for (let index = 0; index < outputLength; index++) {
+            const start = Math.floor(index * ratio);
+            const end = Math.min(inputData.length, Math.max(start + 1, Math.floor((index + 1) * ratio)));
+            let sum = 0;
+            for (let sample = start; sample < end; sample++) sum += inputData[sample];
+            const normalized = Math.max(-1, Math.min(1, sum / (end - start)));
+            output[index] = normalized < 0 ? normalized * 0x8000 : normalized * 0x7FFF;
+        }
+        return output;
     }
 
     _stopRendererAudioCapture() {
@@ -803,6 +807,11 @@ class MainWindowUI {
         const skillNames = {
             'dsa': 'DSA',
             'amazon-dct': 'Amazon DCT',
+            'devops': 'DevOps',
+            'sdet': 'SDET',
+            'backend-engineer': 'Backend',
+            'star': 'STAR',
+            'leadership-principles': 'Leadership',
             'behavioral': 'Behavioral', 
             'sales': 'Sales',
             'presentation': 'Presentation',
@@ -819,12 +828,9 @@ class MainWindowUI {
             skillIndicatorExists: !!this.skillIndicator
         });
         
-        if (!this.skillIndicator) {
-            logger.error('Skill indicator element not found!');
-            return;
-        }
+        if (!this.skillIndicator) return;
         
-        const skillName = skillNames[this.currentSkill] || this.currentSkill.toUpperCase();
+        const skillName = this.skillNames[this.currentSkill] || skillNames[this.currentSkill] || this.currentSkill.toUpperCase();
         const skillSpan = this.skillIndicator.querySelector('span');
         
         logger.info('Looking for skill span element', {
@@ -917,6 +923,11 @@ class MainWindowUI {
         const skillNames = {
             'dsa': 'DSA',
             'amazon-dct': 'Amazon DCT',
+            'devops': 'DevOps',
+            'sdet': 'SDET',
+            'backend-engineer': 'Backend',
+            'star': 'STAR',
+            'leadership-principles': 'Leadership',
             'behavioral': 'Behavioral', 
             'sales': 'Sales',
             'presentation': 'Presentation',

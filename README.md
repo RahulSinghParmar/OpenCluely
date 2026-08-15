@@ -7,13 +7,13 @@
 Real-time AI help on a stealth overlay that screen sharing cannot see. Ask by voice or screenshot, and get clear answers that stream in as you need them.
 
 <p>
-  <a href="https://github.com/TechyCSR/OpenCluely/releases/latest"><img src="https://img.shields.io/github/v/release/TechyCSR/OpenCluely?style=for-the-badge&label=Latest&color=111111&labelColor=000000" alt="Latest release" /></a>
-  <a href="https://github.com/TechyCSR/OpenCluely/releases"><img src="https://img.shields.io/github/downloads/TechyCSR/OpenCluely/total?style=for-the-badge&color=111111&labelColor=000000" alt="Downloads" /></a>
+  <a href="https://github.com/RahulSinghParmar/OpenCluely/releases/latest"><img src="https://img.shields.io/github/v/release/RahulSinghParmar/OpenCluely?style=for-the-badge&label=Latest&color=111111&labelColor=000000" alt="Latest release" /></a>
+  <a href="https://github.com/RahulSinghParmar/OpenCluely/releases"><img src="https://img.shields.io/github/downloads/RahulSinghParmar/OpenCluely/total?style=for-the-badge&color=111111&labelColor=000000" alt="Downloads" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-111111?style=for-the-badge&labelColor=000000" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-111111?style=for-the-badge&labelColor=000000" alt="Platforms" />
 </p>
 
-<a href="https://opencluely.techycsr.dev"><b>Website</b></a> &nbsp;|&nbsp;
+<a href="https://github.com/RahulSinghParmar/OpenCluely"><b>Repository</b></a> &nbsp;|&nbsp;
 <a href="#download">Download</a> &nbsp;|&nbsp;
 <a href="#quick-start">Quick start</a> &nbsp;|&nbsp;
 <a href="#how-it-works">How it works</a>
@@ -48,15 +48,15 @@ Pre-built installers are published with every release. These links always point 
 
 | Platform | File | Notes |
 |---|---|---|
-| Windows | [Setup .exe](https://github.com/TechyCSR/OpenCluely/releases/latest) | NSIS installer. Adds a Start Menu shortcut. |
-| Linux (Debian or Ubuntu) | [.deb](https://github.com/TechyCSR/OpenCluely/releases/latest) | Pulls system deps automatically (Python, ffmpeg, GTK). |
-| Linux (universal) | [.AppImage](https://github.com/TechyCSR/OpenCluely/releases/latest) | No install. Run `chmod +x` then launch. |
+| Windows | [Setup .exe](https://github.com/RahulSinghParmar/OpenCluely/releases/latest) | NSIS installer. Adds a Start Menu shortcut. |
+| Linux (Debian or Ubuntu) | [.deb](https://github.com/RahulSinghParmar/OpenCluely/releases/latest) | Pulls system deps automatically (Python, ffmpeg, GTK). |
+| Linux (universal) | [.AppImage](https://github.com/RahulSinghParmar/OpenCluely/releases/latest) | No install. Run `chmod +x` then launch. |
 
 > **macOS:** there is no pre-built download. The app is unsigned and un-notarized, so macOS Gatekeeper blocks it as "damaged and can't be opened." Run OpenCluely from source instead — see [Quick start](#quick-start). It is a one-line `./setup.sh` once Node.js is installed.
 
 Every build is produced automatically on GitHub Actions and ships with SHA-256 checksums. Each release also lists the full set of commits it includes.
 
-The website at [opencluely.techycsr.dev](https://opencluely.techycsr.dev) detects your operating system and offers the right installer directly.
+Project updates and releases are published at [RahulSinghParmar/OpenCluely](https://github.com/RahulSinghParmar/OpenCluely).
 
 ## Quick start
 
@@ -65,7 +65,7 @@ If you would rather build from source, three steps are all it takes.
 1. Clone the repository.
 
    ```bash
-   git clone https://github.com/TechyCSR/OpenCluely.git
+   git clone https://github.com/RahulSinghParmar/OpenCluely.git
    cd OpenCluely
    ```
 
@@ -157,6 +157,15 @@ For Azure Speech, create a Speech resource in the [Azure Portal](https://portal.
 
 OpenCluely is under active development. The core is stable and improvements ship regularly.
 
+## Universal skill system
+
+Skills are now defined through a central catalog instead of a DSA-only model. Every skill supplies a system prompt, knowledge scope, response style, display format, latency preferences, and language preferences. Static Markdown prompts remain supported as overrides for specialized skills.
+
+- **Interview:** Amazon DCT, SDET, QA Automation, DevOps, Backend, Frontend, Full Stack, Cloud, Security, Network, System Administrator, Linux, Database, Data, AI, ML, SRE, Platform.
+- **General:** HR Interview, Behavioral Interview, STAR, Leadership Principles, Resume Review, Salary Negotiation, Career Coaching.
+- **Education:** DSA, Operating Systems, Networking, Databases, System Design, OOP, Software Architecture.
+- **General AI:** Explain Concepts, Research Assistant, Meeting Assistant, Technical Documentation, Coding Assistant.
+
 ### Done
 
 - Stealth overlay with a draggable command bar and a click through toggle
@@ -232,6 +241,116 @@ Released under the MIT License. See [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Built by [TechyCSR](https://techycsr.dev). If OpenCluely helped you, consider giving it a star ⭐
+Maintained by [RahulSinghParmar](https://github.com/RahulSinghParmar). If OpenCluely helped you, consider giving it a star ⭐
 
 </div>
+
+## Architecture review and delivery plan
+
+OpenCluely is an Electron desktop application for authorized interview practice and preparation. It provides profile-aware chat, voice, and screen-question flows. Use it only where external assistance is permitted.
+
+### Current architecture
+
+```mermaid
+flowchart LR
+  UI["Renderer windows\nOverlay · Chat · Settings · Response"] --> P["preload.js\nallowlisted IPC"]
+  P --> M["ApplicationController\nmain.js"]
+  M --> W[WindowManager]
+  M --> S[SessionManager]
+  M --> SP["SpeechService\nAzure / Whisper"] --> A[Azure Speech]
+  M --> C[CaptureService]
+  M --> L[LLMService] --> G[Gemini API]
+  SP --> M
+  C --> M
+  L --> M
+```
+
+### Data flow and IPC flow
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant R as Renderer
+  participant M as Main process
+  participant X as Speech or Capture service
+  participant L as LLM service
+  participant G as Gemini
+  U->>R: Chat, microphone, hotkey, or screen question
+  R->>M: Preload IPC request / PCM chunks
+  M->>X: Capture or transcribe
+  X-->>M: Transcript or image buffer
+  M->>L: Profile, session context, request
+  L->>G: Streamed generation
+  G-->>L: Answer tokens
+  L-->>M: Formatted response
+  M-->>R: IPC response events
+```
+
+Renderer pages use `preload.js`; the main process owns settings, windows, capture, speech, Gemini requests, and broadcasts.
+
+### Architecture assessment
+
+| Area | Finding | Recommended improvement |
+|---|---|---|
+| Main process | `main.js` owns IPC, shortcuts, settings, speech orchestration, LLM work, and lifecycle logic. | Split into request, settings, shortcut, and lifecycle controllers. |
+| Services | Speech, window, and LLM services are very large modules. | Separate state machines, transport adapters, and rendering concerns. |
+| Gemini latency | Retry, fallback-model, SDK, and alternate-HTTPS paths can compound failure latency. | Use one retry/circuit-breaker policy and request cancellation. |
+| Screenshots | Full-screen PNGs are base64 encoded and uploaded. | Crop/downscale and use JPEG where text fidelity permits. |
+| Memory | Event count is bounded, but byte size is not; consolidation can be expensive. | Use a byte budget, rolling summary, and last 20–40 turns. |
+| Background work | Screen/window/always-on-top polling creates recurring wakeups. | Pause polling while hidden and prefer event-driven behavior. |
+| UI | Large HTML files contain inline styles and behavior. | Incrementally extract shared components and styles. |
+| Tests | No automated test suite is declared. | Add unit, IPC-contract, and Electron smoke tests. |
+
+### Security and Electron review
+
+Current strengths: `contextIsolation` is enabled, Node integration is disabled, the remote module is disabled, local navigation is guarded, and logging redacts common secret-shaped fields.
+
+Priority work:
+
+1. Do not return Gemini or Azure API keys to renderer windows; return only configured status or a masked suffix.
+2. Store packaged-app secrets in macOS Keychain/Electron `safeStorage`, not plaintext `.env`.
+3. Disable DevTools outside development.
+4. Validate every IPC payload and verify the sender for privileged operations.
+5. Add strict Content Security Policy headers to all local renderer pages.
+6. Enable hardened runtime, signing, and notarization before distributing a macOS app.
+7. Recover individual services after faults rather than treating all uncaught exceptions as survivable.
+
+### Gemini and Azure Speech optimization
+
+- Reuse a shared HTTPS keep-alive agent and cancel timed-out/stale Gemini requests with request IDs and `AbortController`.
+- Measure capture, transcription, prompt construction, first-token, and completion latency independently.
+- Fail over immediately on model availability/quota errors; do not retry invalid keys or malformed input.
+- Keep one normalized prompt contract for typed, spoken, and screenshot questions.
+- Benchmark Azure end-silence around 700–1,000 ms for faster interview responses.
+- Add profile-specific Azure phrase lists for terms such as VLAN, RAID, IAM, EC2, Kubernetes, Terraform, and Playwright.
+- Add explicit speech states: `idle → starting → listening → finalizing → error`.
+- Apply IPC audio chunk limits and backpressure; never enable audio logging by default.
+
+### Latency metrics
+
+Settings → **Performance** displays the most recent in-app timing summary. The app records speech transcription duration, Gemini first-token time, full LLM time, prompt size, cache hits, and speech-to-answer time. These measurements make it possible to distinguish local overhead from Azure or Gemini network latency.
+
+### Immediate roadmap
+
+1. Protect API keys and validate IPC payloads.
+2. Compress screenshots and cancel stale Gemini work.
+3. Simplify retry/fallback behavior and reuse connections.
+4. Reduce polling, improve normal quit/tray behavior, and instrument latency.
+5. Add smoke tests for startup, profile switching, settings, speech, and screenshot error states.
+
+### Long-term target
+
+```mermaid
+flowchart TB
+  R[Renderer surfaces] --> I[Typed IPC contract]
+  I --> Q[Request Coordinator]
+  Q --> P[Profile and Prompt Engine]
+  Q --> S[Speech Coordinator]
+  Q --> C[Capture Coordinator]
+  Q --> G[Gemini Gateway]
+  Q --> M[Bounded Session Store]
+  I --> K[Secure Settings Store]
+  W[Window Lifecycle Manager] --> R
+```
+
+The target is a single, validated request pipeline shared by chat, voice, and screenshots, with consistent cancellation, prompt construction, metrics, error handling, and streamed output.

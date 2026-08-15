@@ -1,4 +1,4 @@
-const { desktopCapturer, screen } = require('electron');
+const { desktopCapturer, screen, systemPreferences } = require('electron');
 const logger = require('../core/logger').createServiceLogger('CAPTURE');
 
 class CaptureService {
@@ -65,13 +65,27 @@ class CaptureService {
   }
 
   async captureScreenshot(options = {}) {
+    if (process.platform === 'darwin' && systemPreferences?.getMediaAccessStatus) {
+      const status = systemPreferences.getMediaAccessStatus('screen');
+      logger.info('macOS Screen Recording permission status', { status });
+      if (status === 'denied' || status === 'restricted') {
+        throw new Error('Screen Recording permission is not enabled for Electron. Open System Settings → Privacy & Security → Screen & System Audio Recording, enable Electron, then restart npm start.');
+      }
+    }
+
     const targetDisplay = this._getTargetDisplay(options.displayId);
     const { width, height } = targetDisplay.size || { width: 1920, height: 1080 };
 
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: { width, height }
-    });
+    let sources;
+    try {
+      sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width, height }
+      });
+    } catch (error) {
+      logger.error('Screen source enumeration failed', { reason: error.message });
+      throw new Error(`Screen capture could not start: ${error.message}`);
+    }
 
     if (sources.length === 0) {
       throw new Error('No screen sources available for capture');
@@ -86,7 +100,9 @@ class CaptureService {
     if (match) source = match;
 
     const image = source.thumbnail;
-    if (!image) throw new Error('Failed to capture screen thumbnail');
+    if (!image || image.isEmpty()) {
+      throw new Error('Screen capture returned an empty image. Enable Screen Recording for Electron in macOS Privacy & Security, then restart npm start.');
+    }
 
     logger.debug('Screenshot captured successfully', {
       sourceName: source.name,

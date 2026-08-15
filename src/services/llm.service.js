@@ -3,6 +3,10 @@ const logger = require('../core/logger').createServiceLogger('LLM');
 const config = require('../core/config');
 const { promptLoader } = require('../../prompt-loader');
 const { formatAmazonDctRoutingContext } = require('./amazon-dct-classifier');
+const { isInterviewProfile } = require('../skills/profile-registry');
+const { getSkill } = require('../skills/skill-catalog');
+const { TECHNOLOGY_LABELS, isSupportedTechnology } = require('../skills/technology-registry');
+const performanceMetrics = require('../core/performance-metrics');
 
 class LLMService {
   constructor() {
@@ -11,6 +15,18 @@ class LLMService {
     this.isInitialized = false;
     this.requestCount = 0;
     this.errorCount = 0;
+    this.responseCache = new Map();
+    this.responseCacheTtlMs = 10 * 60 * 1000;
+    this.responseCacheLimit = 100;
+    this.httpsAgent = new (require('https').Agent)({ keepAlive: true, maxSockets: 6, keepAliveMsecs: 10_000 });
+    this.responsePreferences = {
+      company: process.env.INTERVIEW_COMPANY || 'general',
+      responseMode: process.env.RESPONSE_MODE || 'interview',
+      technologyContext: {
+        database: process.env.TECH_DATABASE || 'auto', cloud: process.env.TECH_CLOUD || 'auto',
+        containers: process.env.TECH_CONTAINERS || 'auto', infrastructure: process.env.TECH_INFRASTRUCTURE || 'auto'
+      }
+    };
     
     this.initializeClient();
   }
@@ -46,14 +62,16 @@ class LLMService {
   getGenerationConfig(overrides = {}) {
     const defaults = config.get('llm.gemini.generation') || {};
     const fallback = {
-      temperature: 0.7,
-      topK: 40,
-      topP: 0.95,
       maxOutputTokens: 4096,
       thinkingConfig: { thinkingBudget: 0 }
     };
 
     const merged = { ...fallback, ...defaults, ...overrides };
+    // Gemini's current Flash-Lite API rejects the legacy sampling fields.
+    // Keep requests portable across the configured primary and fallback models.
+    delete merged.temperature;
+    delete merged.topK;
+    delete merged.topP;
     return Object.fromEntries(
       Object.entries(merged).filter(([, value]) => value !== undefined && value !== null)
     );
@@ -64,11 +82,76 @@ class LLMService {
     return request;
   }
 
+
+  setResponsePreferences(preferences = {}) {
+    const validCompanies = ['general', 'amazon', 'google', 'microsoft', 'meta', 'apple', 'nvidia', 'netflix'];
+    const validModes = ['quick', 'interview', 'detailed', 'star', 'troubleshooting'];
+    if (validCompanies.includes(preferences.company)) this.responsePreferences.company = preferences.company;
+    if (validModes.includes(preferences.responseMode)) this.responsePreferences.responseMode = preferences.responseMode;
+    for (const category of ['database', 'cloud', 'containers', 'infrastructure']) {
+      const value = preferences.technologyContext?.[category];
+      if (isSupportedTechnology(category, value)) this.responsePreferences.technologyContext[category] = value;
+    }
+  }
+
+  getResponsePreferencePrompt(activeSkill) {
+    if (!getSkill(activeSkill)) return '';
+    const companyNames = {
+      general: 'a technical interview', amazon: 'Amazon', google: 'Google', microsoft: 'Microsoft',
+      meta: 'Meta', apple: 'Apple', nvidia: 'NVIDIA', netflix: 'Netflix'
+    };
+    const company = companyNames[this.responsePreferences.company] || companyNames.general;
+    const modeRules = {
+      quick: 'QUICK ANSWER MODE: Answer in at most 75 words. Use 2–4 concise bullets; include only the direct answer and the most useful check or command.',
+      interview: 'INTERVIEW MODE: Give a polished spoken answer in at most 120 words. Be direct, practical, and concise.',
+      detailed: 'DETAILED MODE: This mode overrides shorter profile limits. Answer in at most 260 words using clear headings, a practical sequence, relevant commands, and one brief example when useful.',
+      star: 'STAR ANSWER MODE: Structure every answer as Situation, Task, Action, Result. Never invent the candidate’s history; label missing facts as [your example]. Keep it within 180 words.',
+      troubleshooting: 'TROUBLESHOOTING MODE: Use exactly these headings: ISSUE, APPROACH, COMMANDS, ESCALATION. Give a safe physical-to-logical sequence and stay within 180 words.'
+    };
+    const selectedTechnologies = Object.entries(this.responsePreferences.technologyContext)
+      .filter(([, value]) => value && value !== 'auto')
+      .map(([category, value]) => `${category}: ${TECHNOLOGY_LABELS[value]}`);
+    const technologyNote = selectedTechnologies.length
+      ? `\nTECHNICAL FOCUS: Prefer examples, commands, and trade-offs relevant to ${selectedTechnologies.join('; ')} when the question is related.`
+      : '';
+    return `\n\nINTERVIEW CONTEXT: The candidate is preparing for ${company}.\n${modeRules[this.responsePreferences.responseMode] || modeRules.interview}${technologyNote}\nNo greeting, no conclusion, and no generic essay.`;
+  }
+
   applySkillOutputLimit(request, activeSkill) {
-    if (activeSkill === 'amazon-dct') {
-      request.generationConfig.maxOutputTokens = 240;
+    if (getSkill(activeSkill)) {
+      const limits = { quick: 180, interview: 240, detailed: 600, star: 360, troubleshooting: 360 };
+      request.generationConfig.maxOutputTokens = limits[this.responsePreferences.responseMode] || 240;
     }
     return request;
+  }
+
+  getCacheKey(text, activeSkill, programmingLanguage) {
+    return JSON.stringify({ text: String(text || '').trim().toLowerCase().replace(/\s+/g, ' '), activeSkill, programmingLanguage: programmingLanguage || null, preferences: this.responsePreferences });
+  }
+
+  isCacheableQuestion(text) {
+    const normalized = String(text || '').trim().toLowerCase();
+    return normalized.length > 3 && normalized.length < 180 && /^(what is|what are|define|explain|difference between|how does)\b/.test(normalized);
+  }
+
+  getCachedResponse(text, activeSkill, programmingLanguage) {
+    if (!this.isCacheableQuestion(text)) return null;
+    const key = this.getCacheKey(text, activeSkill, programmingLanguage);
+    const entry = this.responseCache.get(key);
+    if (!entry || Date.now() - entry.createdAt > this.responseCacheTtlMs) { this.responseCache.delete(key); return null; }
+    return entry.response;
+  }
+
+  cacheResponse(text, activeSkill, programmingLanguage, response) {
+    if (!this.isCacheableQuestion(text) || !response) return;
+    this.responseCache.set(this.getCacheKey(text, activeSkill, programmingLanguage), { response, createdAt: Date.now() });
+    if (this.responseCache.size > this.responseCacheLimit) this.responseCache.delete(this.responseCache.keys().next().value);
+  }
+
+  createDeltaThrottler(onDelta) {
+    let buffer = ''; let timer = null;
+    const flush = () => { if (timer) clearTimeout(timer); timer = null; if (buffer && typeof onDelta === 'function') onDelta(buffer); buffer = ''; };
+    return { push: (delta) => { if (!delta) return; buffer += delta; if (!timer) timer = setTimeout(flush, 33); }, flush };
   }
 
   getUserFacingError(error) {
@@ -179,7 +262,7 @@ class LLMService {
       this.applySkillOutputLimit(request, activeSkill);
 
       if (skillPrompt && skillPrompt.trim().length > 0) {
-        request.systemInstruction = { parts: [{ text: skillPrompt }] };
+        request.systemInstruction = { parts: [{ text: skillPrompt + this.getResponsePreferencePrompt(activeSkill) }] };
       }
 
       // Execute with retries/timeout - try alternative method first for network reliability
@@ -279,7 +362,7 @@ class LLMService {
       this.applyGenerationDefaults(geminiRequest);
       this.applySkillOutputLimit(geminiRequest, activeSkill);
       if (skillPrompt && skillPrompt.trim().length > 0) {
-        geminiRequest.systemInstruction = { parts: [{ text: skillPrompt }] };
+        geminiRequest.systemInstruction = { parts: [{ text: skillPrompt + this.getResponsePreferencePrompt(activeSkill) }] };
       }
 
       const fullText = await this.executeStreamingRequest(geminiRequest, (delta) => {
@@ -322,8 +405,9 @@ class LLMService {
   }
 
   formatImageInstruction(activeSkill, programmingLanguage) {
-    if (activeSkill === 'amazon-dct') {
-      return 'Analyze this image for an Amazon Data Center Technician interview-practice question. Extract the question, classify it internally by DCT domain, and provide the interview-ready response required by the system instructions. Do not write code unless the question specifically asks for it.';
+    const skill = getSkill(activeSkill);
+    if (skill) {
+      return `Analyze this image for a ${skill.name} question. Extract the relevant question or context and follow the skill's display format. Do not write code unless the question specifically asks for it.`;
     }
     const langNote = programmingLanguage ? ` Use only ${programmingLanguage.toUpperCase()} for any code.` : '';
     return `Analyze this image for a ${activeSkill.toUpperCase()} question. Extract the problem concisely and provide the best possible solution with explanation and final code.${langNote}`;
@@ -425,17 +509,30 @@ class LLMService {
     this.requestCount++;
 
     try {
+      const cached = this.getCachedResponse(text, activeSkill, programmingLanguage);
+      if (cached) {
+        if (typeof onDelta === 'function') onDelta(cached);
+        performanceMetrics.record('llm_cache_hit', 0, { activeSkill, requestId: this.requestCount });
+        return { response: cached, metadata: { skill: activeSkill, programmingLanguage, processingTime: 0, firstTokenMs: 0, requestId: this.requestCount, usedFallback: false, streamed: true, cacheHit: true } };
+      }
       const geminiRequest = this.buildGeminiRequest(text, activeSkill, sessionMemory, programmingLanguage);
+      const promptChars = JSON.stringify(geminiRequest).length;
+      const throttler = this.createDeltaThrottler(onDelta);
+      let firstTokenAt = null;
 
       const fullText = await this.executeStreamingRequest(geminiRequest, (delta) => {
-        if (typeof onDelta === 'function' && delta) {
-          onDelta(delta);
-        }
+        if (!firstTokenAt) firstTokenAt = Date.now();
+        throttler.push(delta);
       });
+      throttler.flush();
 
       const finalResponse = programmingLanguage
         ? this.enforceProgrammingLanguage(fullText, programmingLanguage)
         : fullText;
+      this.cacheResponse(text, activeSkill, programmingLanguage, finalResponse);
+      const processingTime = Date.now() - startTime;
+      const firstTokenMs = firstTokenAt ? firstTokenAt - startTime : processingTime;
+      performanceMetrics.record('llm_stream', processingTime, { activeSkill, requestId: this.requestCount, firstTokenMs, promptChars, cacheHit: false });
 
       logger.logPerformance('LLM text streaming', startTime, {
         activeSkill,
@@ -449,7 +546,9 @@ class LLMService {
         metadata: {
           skill: activeSkill,
           programmingLanguage,
-          processingTime: Date.now() - startTime,
+          processingTime,
+          firstTokenMs,
+          promptChars,
           requestId: this.requestCount,
           usedFallback: false,
           streamed: true
@@ -608,7 +707,7 @@ class LLMService {
     // Use the skill prompt that already has programming language injected
     if (requestComponents.shouldUseModelMemory && requestComponents.skillPrompt) {
       request.systemInstruction = {
-        parts: [{ text: requestComponents.skillPrompt }]
+        parts: [{ text: requestComponents.skillPrompt + this.getResponsePreferencePrompt(activeSkill) }]
       };
       
       logger.debug('Using language-enhanced system instruction for skill', {
@@ -644,7 +743,7 @@ class LLMService {
         ? skillContext.skillPrompt + formatAmazonDctRoutingContext(text)
         : skillContext.skillPrompt;
       request.systemInstruction = {
-        parts: [{ text: systemPrompt }]
+        parts: [{ text: systemPrompt + this.getResponsePreferencePrompt(activeSkill) }]
       };
       
       logger.debug('Using skill context prompt as system instruction', {
@@ -664,6 +763,7 @@ class LLMService {
                typeof event.content === 'string' && 
                event.content.trim().length > 0;
       })
+      .slice(-(getSkill(activeSkill)?.latencyPreferences?.contextTurns || (isInterviewProfile(activeSkill) ? 6 : 15)))
       .map(event => {
         const content = event.content.trim();
         return {
@@ -816,9 +916,9 @@ class LLMService {
   }
 
   getIntelligentTranscriptionPrompt(activeSkill, programmingLanguage) {
-    if (activeSkill === 'amazon-dct') {
-      const dctPrompt = promptLoader.getSkillPrompt('amazon-dct');
-      return `${dctPrompt}\n\nThe input is a spoken interview-practice question. Answer it directly; do not acknowledge listening or reject it as irrelevant.`;
+    if (getSkill(activeSkill)) {
+      const profilePrompt = promptLoader.getSkillPrompt(activeSkill);
+      return `${profilePrompt}${this.getResponsePreferencePrompt(activeSkill)}\n\nThe input is a spoken interview-practice question. Answer it directly; do not acknowledge listening or reject it as irrelevant.`;
     }
 
     let prompt = `# Intelligent Transcription Response System
@@ -978,6 +1078,12 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
             error.message.includes('503') ||
             error.message.includes('UNAVAILABLE') ||
             error.message.includes('high demand');
+          const isPermanentRequestError = /HTTP 400|INVALID_ARGUMENT|invalid argument/i.test(error.message);
+
+          if (isPermanentRequestError) {
+            logger.warn('Gemini request is invalid; skipping retries for this model', { model: modelName, error: error.message });
+            break;
+          }
 
           if (isModelUnavailable && modelName !== modelsToTry[modelsToTry.length - 1]) {
             logger.info(`Switching to fallback model after ${modelName} unavailable`, {
@@ -1029,17 +1135,30 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
     this.requestCount++;
 
     try {
+      const cached = this.getCachedResponse(text, activeSkill, programmingLanguage);
+      if (cached) {
+        if (typeof onDelta === 'function') onDelta(cached);
+        performanceMetrics.record('llm_cache_hit', 0, { activeSkill, requestId: this.requestCount, source: 'speech' });
+        return { response: cached, metadata: { skill: activeSkill, programmingLanguage, processingTime: 0, firstTokenMs: 0, requestId: this.requestCount, usedFallback: false, streamed: true, cacheHit: true, isTranscriptionResponse: true } };
+      }
       const geminiRequest = this.buildIntelligentTranscriptionRequest(text, activeSkill, sessionMemory, programmingLanguage);
+      const promptChars = JSON.stringify(geminiRequest).length;
+      const throttler = this.createDeltaThrottler(onDelta);
+      let firstTokenAt = null;
 
       const fullText = await this.executeStreamingRequest(geminiRequest, (delta) => {
-        if (typeof onDelta === 'function' && delta) {
-          onDelta(delta);
-        }
+        if (!firstTokenAt) firstTokenAt = Date.now();
+        throttler.push(delta);
       });
+      throttler.flush();
 
       const finalResponse = programmingLanguage
         ? this.enforceProgrammingLanguage(fullText, programmingLanguage)
         : fullText;
+      this.cacheResponse(text, activeSkill, programmingLanguage, finalResponse);
+      const processingTime = Date.now() - startTime;
+      const firstTokenMs = firstTokenAt ? firstTokenAt - startTime : processingTime;
+      performanceMetrics.record('llm_speech_stream', processingTime, { activeSkill, requestId: this.requestCount, firstTokenMs, promptChars, cacheHit: false });
 
       logger.logPerformance('LLM transcription streaming', startTime, {
         activeSkill,
@@ -1053,7 +1172,9 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
         metadata: {
           skill: activeSkill,
           programmingLanguage,
-          processingTime: Date.now() - startTime,
+          processingTime,
+          firstTokenMs,
+          promptChars,
           requestId: this.requestCount,
           usedFallback: false,
           streamed: true,
@@ -1135,6 +1256,12 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
             error.message.includes('503') ||
             error.message.includes('UNAVAILABLE') ||
             error.message.includes('high demand');
+          const isPermanentRequestError = /HTTP 400|INVALID_ARGUMENT|invalid argument/i.test(error.message);
+
+          if (isPermanentRequestError) {
+            logger.warn('Gemini streaming request is invalid; skipping retries for this model', { model: modelName, error: error.message });
+            break;
+          }
 
           if (isModelUnavailable && modelName !== modelsToTry[modelsToTry.length - 1]) {
             break; // try next fallback model
@@ -1159,7 +1286,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
     const timeout = config.get('llm.gemini.timeout');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse`;
     const postData = JSON.stringify(geminiRequest);
-    const agent = new https.Agent({ keepAlive: true, maxSockets: 1 });
+    const agent = this.httpsAgent;
 
     const options = {
       method: 'POST',
@@ -1617,7 +1744,7 @@ Remember: Be intelligent about filtering - only provide detailed responses when 
 
     const postData = JSON.stringify(geminiRequest);
 
-    const agent = new https.Agent({ keepAlive: true, maxSockets: 1 });
+    const agent = this.httpsAgent;
 
     const options = {
       method: 'POST',

@@ -34,6 +34,21 @@
             flex-direction: column;
         }
 
+        .toggle-label {
+            min-width: 150px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .toggle-label input { accent-color: #4caf50; }
+
+        body.compact-mode .settings-item { padding: 10px 0; }
+        html[data-theme="light"] .toggle-label { color: #18212f; }
+
         .settings-header {
             padding: 16px 20px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -309,6 +324,16 @@
                             <option value="python">Python</option>
                             <option value="java">Java</option>
                             <option value="javascript">JavaScript</option>
+                            <option value="typescript">TypeScript</option>
+                            <option value="go">Go</option>
+                            <option value="rust">Rust</option>
+                            <option value="csharp">C#</option>
+                            <option value="kotlin">Kotlin</option>
+                            <option value="swift">Swift</option>
+                            <option value="php">PHP</option>
+                            <option value="ruby">Ruby</option>
+                            <option value="bash">Bash</option>
+                            <option value="powershell">PowerShell</option>
                         </select>
                     </div>
                     <div class="settings-item">
@@ -319,7 +344,85 @@
                         <select class="input-field" id="activeSkill">
                             <option value="dsa">Data Structures & Algorithms</option>
                             <option value="amazon-dct">Amazon DCT Interview Practice</option>
+                            <option value="devops">DevOps Engineer Interview</option>
+                            <option value="sdet">SDET Interview</option>
+                            <option value="backend-engineer">Backend Engineer Interview</option>
+                            <option value="star">STAR Response Mode</option>
+                            <option value="leadership-principles">Leadership Principles Mode</option>
                         </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <i class="fas fa-briefcase"></i>
+                    Interview Workspace
+                </div>
+                <div class="settings-section-content">
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Company Focus</div>
+                            <div class="settings-item-description">Tailor interview language and likely expectations without claiming company-private knowledge.</div>
+                        </div>
+                        <select class="input-field" id="interviewCompany">
+                            <option value="general">General technical interview</option>
+                            <option value="amazon">Amazon</option>
+                            <option value="google">Google</option>
+                            <option value="microsoft">Microsoft</option>
+                            <option value="meta">Meta</option>
+                            <option value="apple">Apple</option>
+                            <option value="nvidia">NVIDIA</option>
+                            <option value="netflix">Netflix</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Response Format</div>
+                            <div class="settings-item-description">Choose how Gemini structures every technical or behavioral practice answer.</div>
+                        </div>
+                        <select class="input-field" id="responseMode">
+                            <option value="quick">Quick answer — up to 75 words</option>
+                            <option value="interview">Interview answer — up to 120 words</option>
+                            <option value="detailed">Detailed answer — study mode</option>
+                            <option value="star">STAR answer — behavioral format</option>
+                            <option value="troubleshooting">Troubleshooting — issue, approach, commands</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Appearance</div>
+                            <div class="settings-item-description">Switch between the default dark workspace and a high-contrast light workspace.</div>
+                        </div>
+                        <select class="input-field" id="uiTheme">
+                            <option value="dark">Dark mode</option>
+                            <option value="light">Light mode</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Layout Density</div>
+                            <div class="settings-item-description">Compact mode reduces overlay and chat spacing for a smaller footprint.</div>
+                        </div>
+                        <label class="toggle-label"><input type="checkbox" id="compactMode"> Compact mode</label>
+                    </div>
+                    <div class="settings-item">
+                        <div><div class="settings-item-label">Database Focus</div><div class="settings-item-description">Optional context for database questions and examples.</div></div>
+                        <select class="input-field" id="technologyDatabase">
+                            <option value="auto">Auto-detect</option><option value="mysql">MySQL</option><option value="postgresql">PostgreSQL</option><option value="mssql">MSSQL</option><option value="oracle">Oracle</option><option value="mongodb">MongoDB</option><option value="redis">Redis</option><option value="elasticsearch">Elasticsearch</option><option value="cassandra">Cassandra</option><option value="dynamodb">DynamoDB</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <div><div class="settings-item-label">Cloud Focus</div><div class="settings-item-description">Optional cloud provider context.</div></div>
+                        <select class="input-field" id="technologyCloud"><option value="auto">Auto-detect</option><option value="aws">AWS</option><option value="azure">Azure</option><option value="gcp">GCP</option></select>
+                    </div>
+                    <div class="settings-item">
+                        <div><div class="settings-item-label">Container Focus</div><div class="settings-item-description">Optional container-platform context.</div></div>
+                        <select class="input-field" id="technologyContainers"><option value="auto">Auto-detect</option><option value="docker">Docker</option><option value="kubernetes">Kubernetes</option><option value="openshift">OpenShift</option></select>
+                    </div>
+                    <div class="settings-item">
+                        <div><div class="settings-item-label">Infrastructure Focus</div><div class="settings-item-description">Optional automation and delivery-tool context.</div></div>
+                        <select class="input-field" id="technologyInfrastructure"><option value="auto">Auto-detect</option><option value="terraform">Terraform</option><option value="ansible">Ansible</option><option value="jenkins">Jenkins</option><option value="github-actions">GitHub Actions</option></select>
                     </div>
                 </div>
             </div>
@@ -456,7 +559,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-robot"></i>
@@ -490,8 +593,11 @@
                         <div class="header-actions">
                             <button class="btn" id="openLogsButton">Open Logs</button>
                             <button class="btn" id="copyLogsButton">Copy Diagnostics</button>
+                            <button class="btn" id="performanceButton">Performance</button>
+                            <button class="btn" id="screenRecordingButton">Screen Recording</button>
                         </div>
                     </div>
+                    <div id="diagnosticStatus" class="settings-note" role="status" aria-live="polite"></div>
                 </div>
             </div>
             
