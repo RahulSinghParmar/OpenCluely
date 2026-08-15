@@ -46,6 +46,22 @@ function formatEnvValue(raw) {
   return `"${v.replace(/"/g, '\\"')}"`;
 }
 
+// Candidate and job material can contain newlines, which are not safe in a
+// dotenv key=value record. Store these two optional local settings as base64
+// instead; they are decoded only in memory before a relevant Gemini request.
+function decodeStoredProfile(value) {
+  if (!value) return "";
+  try {
+    return Buffer.from(String(value), "base64").toString("utf8").trim();
+  } catch (_) {
+    return "";
+  }
+}
+
+function normalizeProfileText(value, limit = 12000) {
+  return typeof value === "string" ? value.replace(/\u0000/g, "").trim().slice(0, limit) : "";
+}
+
 // ── Linux GPU process crash workaround ──
 // On many Linux setups (Wayland, X11 without GPU drivers, Docker, headless,
 // or systems with broken Mesa/NVIDIA stacks), Chromium's GPU process crashes
@@ -117,19 +133,33 @@ class ApplicationController {
   constructor() {
     this.isReady = false;
     this.starting = false;
-    this.activeSkill = "amazon-dct";
-    // Default to C++ so language is enforced from first run
-    this.codingLanguage = "cpp";
+    const savedSkill = normalizeProfileId(process.env.ACTIVE_SKILL || "amazon-dct");
+    this.activeSkill = isSupportedSkill(savedSkill) ? savedSkill : "amazon-dct";
+    // Default to C++ on first run, but retain the last language selected in
+    // Settings on every later launch.
+    this.codingLanguage = process.env.CODING_LANGUAGE || "cpp";
     this.interviewCompany = process.env.INTERVIEW_COMPANY || "general";
     this.responseMode = process.env.RESPONSE_MODE || "interview";
     this.uiTheme = process.env.UI_THEME || "dark";
     this.compactMode = process.env.COMPACT_MODE === "true";
+    this.appIcon = process.env.APP_ICON || "terminal";
     this.technologyContext = {
       database: process.env.TECH_DATABASE || 'auto', cloud: process.env.TECH_CLOUD || 'auto',
       containers: process.env.TECH_CONTAINERS || 'auto', infrastructure: process.env.TECH_INFRASTRUCTURE || 'auto'
     };
-    llmService.setResponsePreferences({ company: this.interviewCompany, responseMode: this.responseMode, technologyContext: this.technologyContext });
+    this.candidateProfile = decodeStoredProfile(process.env.CANDIDATE_PROFILE_B64);
+    this.targetJobProfile = decodeStoredProfile(process.env.TARGET_JOB_PROFILE_B64);
+    llmService.setResponsePreferences({
+      company: this.interviewCompany,
+      responseMode: this.responseMode,
+      technologyContext: this.technologyContext,
+      candidateProfile: this.candidateProfile,
+      targetJobProfile: this.targetJobProfile
+    });
     this.speechAvailable = false;
+    const savedWindowGap = Number(process.env.WINDOW_GAP);
+    if (Number.isFinite(savedWindowGap)) windowManager.setWindowGap(savedWindowGap);
+    sessionManager.setActiveSkill(this.activeSkill);
 
     // Utterance coalescing: VAD emits a transcript per natural pause, but a
     // single spoken question can still arrive as a few fragments (mid-thought
@@ -138,9 +168,10 @@ class ApplicationController {
     this._utteranceBuffer = "";
     this._utteranceTimer = null;
     this._utteranceDispatchInFlight = false;
-    // A short debounce still merges Azure final fragments while avoiding a
-    // noticeable dead-air delay before the Gemini request starts.
-    this._utteranceCoalesceMs = 450;
+    // Azure final results already represent a natural phrase boundary. Keep a
+    // very small merge window for rare back-to-back fragments, rather than
+    // adding a perceptible half-second pause before every Gemini request.
+    this._utteranceCoalesceMs = 180;
     this._utteranceStartedAt = null;
     this._speechRecordingStartedAt = null;
 
@@ -279,6 +310,7 @@ class ApplicationController {
 
       await windowManager.initializeWindows({ showMainWindow: !isFirstRun });
       this.setupGlobalShortcuts();
+      this.setupPracticePushToTalk();
 
       // Initialize default stealth mode with terminal icon
       this.updateAppIcon("terminal");
@@ -436,6 +468,70 @@ class ApplicationController {
     });
   }
 
+  /**
+   * Practice-only hold-to-mute for the compact toolbar. Electron cannot
+   * observe key-up events globally on macOS, so this intentionally works only
+   * while an OpenCluely non-editable surface has focus. Holding Space pauses
+   * capture; releasing it resumes capture.
+   */
+  setupPracticePushToTalk() {
+    this._pushToTalkHeld = false;
+    this._pushToTalkPausedRecording = false;
+    this._pushToTalkAwaitingStop = false;
+    this._pushToTalkResumeRequested = false;
+    const handleInput = (event, input) => {
+      const isSpace = input?.code === 'Space' || input?.key === ' ' || input?.key === 'Spacebar';
+      if (!isSpace || input?.isAutoRepeat) return;
+
+      if (input.type === 'keyDown') {
+        event.preventDefault();
+        if (this._pushToTalkHeld) return;
+        this._pushToTalkHeld = true;
+        const status = speechService.getStatus();
+        this._pushToTalkPausedRecording = !!status.isRecording;
+        if (this._pushToTalkPausedRecording) {
+          this._pushToTalkAwaitingStop = true;
+          windowManager.broadcastToAllWindows('practice-mute-state', { muted: true });
+          speechService.stopRecording();
+          logger.info('Practice hold-to-mute paused microphone');
+        }
+        return;
+      }
+
+      if (input.type === 'keyUp') {
+        event.preventDefault();
+        const shouldResume = this._pushToTalkHeld && this._pushToTalkPausedRecording;
+        this._pushToTalkHeld = false;
+        this._pushToTalkPausedRecording = false;
+        if (shouldResume) {
+          // Azure stop is asynchronous. Starting a new recognizer before the
+          // old one has finished can make its completion handler tear down the
+          // new session, so defer resumption until recording-stopped below.
+          if (this._pushToTalkAwaitingStop) {
+            this._pushToTalkResumeRequested = true;
+          } else if (!speechService.getStatus().isRecording) {
+            speechService.startRecording();
+            windowManager.broadcastToAllWindows('practice-mute-state', { muted: false });
+            logger.info('Practice hold-to-mute resumed microphone');
+          }
+        }
+      }
+    };
+
+    // Keep the shortcut out of chat and Settings, where Space must remain
+    // normal text input. The compact toolbar and answer panel are safe,
+    // non-editable practice surfaces.
+    let attachedWindows = 0;
+    for (const type of ['main', 'llmResponse']) {
+      const window = windowManager.getWindow(type);
+      if (!window || window.isDestroyed()) continue;
+      window.webContents.on('before-input-event', handleInput);
+      attachedWindows++;
+    }
+
+    logger.info('Practice hold-to-mute ready: hold Space in the focused toolbar or answer panel', { attachedWindows });
+  }
+
   setupServiceEventHandlers() {
     speechService.on("recording-started", () => {
       this._speechRecordingStartedAt = Date.now();
@@ -444,6 +540,19 @@ class ApplicationController {
 
     speechService.on("recording-stopped", () => {
       windowManager.handleRecordingStopped();
+      if (this._pushToTalkAwaitingStop) {
+        this._pushToTalkAwaitingStop = false;
+        if (this._pushToTalkResumeRequested) {
+          this._pushToTalkResumeRequested = false;
+          setTimeout(() => {
+            if (!speechService.getStatus().isRecording) {
+              speechService.startRecording();
+              windowManager.broadcastToAllWindows('practice-mute-state', { muted: false });
+              logger.info('Practice hold-to-mute resumed microphone after Azure stopped');
+            }
+          }, 0);
+        }
+      }
     });
 
     speechService.on("stop-requested", ({ provider, sessionDuration }) => {
@@ -533,8 +642,10 @@ class ApplicationController {
       if (data && data.buffer) {
         audioChunkCount++;
         
-        if (audioChunkCount === 1 || audioChunkCount % 100 === 0) {
-          console.log('[AUDIO-IPC] Received renderer PCM', {
+        // Audio frames are high-frequency IPC traffic; console writes are
+        // disproportionately expensive on an Intel Mac during recording.
+        if (audioChunkCount === 1 || audioChunkCount % 500 === 0) {
+          logger.debug('Renderer PCM received', {
             chunkCount: audioChunkCount,
             bytes: data.buffer.byteLength
           });
@@ -1406,6 +1517,10 @@ class ApplicationController {
     this._utteranceStartedAt = null;
 
     try {
+      performanceMetrics.record('speech_coalesce_wait', Date.now() - utteranceStartedAt, {
+        activeSkill: this.activeSkill,
+        characters: combined.length
+      });
       const sessionHistory = sessionManager.getOptimizedHistory();
       await this.processTranscriptionWithLLM(combined, sessionHistory, utteranceStartedAt);
     } catch (error) {
@@ -1732,6 +1847,8 @@ class ApplicationController {
       uiTheme: this.uiTheme,
       compactMode: this.compactMode,
       technologyContext: this.technologyContext,
+      candidateProfile: this.candidateProfile,
+      targetJobProfile: this.targetJobProfile,
       appIcon: this.appIcon || "terminal",
       selectedIcon: this.appIcon || "terminal",
       windowGap: windowManager.windowGap,
@@ -1778,6 +1895,7 @@ class ApplicationController {
       const validResponseModes = ["quick", "interview", "detailed", "star", "troubleshooting"];
       const validThemes = ["dark", "light"];
       let preferencesChanged = false;
+      let personalContextChanged = false;
       if (validCompanies.includes(settings.interviewCompany)) {
         this.interviewCompany = settings.interviewCompany;
         preferencesChanged = true;
@@ -1801,8 +1919,24 @@ class ApplicationController {
           preferencesChanged = true;
         }
       }
-      if (preferencesChanged) {
-        llmService.setResponsePreferences({ company: this.interviewCompany, responseMode: this.responseMode, technologyContext: this.technologyContext });
+      if (settings.candidateProfile !== undefined) {
+        const candidateProfile = normalizeProfileText(settings.candidateProfile);
+        personalContextChanged = candidateProfile !== this.candidateProfile;
+        this.candidateProfile = candidateProfile;
+      }
+      if (settings.targetJobProfile !== undefined) {
+        const targetJobProfile = normalizeProfileText(settings.targetJobProfile);
+        personalContextChanged = personalContextChanged || targetJobProfile !== this.targetJobProfile;
+        this.targetJobProfile = targetJobProfile;
+      }
+      if (preferencesChanged || personalContextChanged) {
+        llmService.setResponsePreferences({
+          company: this.interviewCompany,
+          responseMode: this.responseMode,
+          technologyContext: this.technologyContext,
+          candidateProfile: this.candidateProfile,
+          targetJobProfile: this.targetJobProfile
+        });
         windowManager.broadcastToAllWindows("ui-preferences-changed", {
           interviewCompany: this.interviewCompany,
           responseMode: this.responseMode,
@@ -1875,6 +2009,28 @@ class ApplicationController {
         envUpdates.TECH_CONTAINERS = this.technologyContext.containers;
         envUpdates.TECH_INFRASTRUCTURE = this.technologyContext.infrastructure;
       }
+      if (settings.codingLanguage !== undefined) {
+        envUpdates.CODING_LANGUAGE = this.codingLanguage;
+      }
+      if (settings.activeSkill !== undefined) {
+        envUpdates.ACTIVE_SKILL = this.activeSkill;
+      }
+      if (settings.appIcon !== undefined || settings.selectedIcon !== undefined) {
+        envUpdates.APP_ICON = this.appIcon || "terminal";
+      }
+      if (settings.windowGap !== undefined) {
+        envUpdates.WINDOW_GAP = String(windowManager.windowGap);
+      }
+      if (settings.candidateProfile !== undefined) {
+        envUpdates.CANDIDATE_PROFILE_B64 = this.candidateProfile
+          ? Buffer.from(this.candidateProfile, "utf8").toString("base64")
+          : "";
+      }
+      if (settings.targetJobProfile !== undefined) {
+        envUpdates.TARGET_JOB_PROFILE_B64 = this.targetJobProfile
+          ? Buffer.from(this.targetJobProfile, "utf8").toString("base64")
+          : "";
+      }
 
       // Capture the previous whisper command BEFORE persisting — persistEnvUpdates
       // mutates process.env in place, so comparing afterwards would always read
@@ -1938,8 +2094,11 @@ class ApplicationController {
       }
 
       logger.info("Settings saved successfully", {
-        ...settings,
-        persistedEnvKeys: persistedKeys
+        persistedEnvKeys: persistedKeys,
+        preferencesChanged,
+        personalContextChanged,
+        candidateProfileLength: this.candidateProfile.length,
+        targetJobProfileLength: this.targetJobProfile.length
       });
       return { success: true, persistedEnvKeys: persistedKeys };
     } catch (error) {

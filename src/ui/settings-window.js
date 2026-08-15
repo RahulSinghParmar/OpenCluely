@@ -34,6 +34,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const technologyCloudSelect = document.getElementById('technologyCloud');
     const technologyContainersSelect = document.getElementById('technologyContainers');
     const technologyInfrastructureSelect = document.getElementById('technologyInfrastructure');
+    const candidateProfileInput = document.getElementById('candidateProfile');
+    const targetJobProfileInput = document.getElementById('targetJobProfile');
     const iconGrid = document.getElementById('iconGrid');
 
     const populateSkillSelect = (catalog = []) => {
@@ -140,6 +142,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (technologyCloudSelect) technologyCloudSelect.value = technologyContext.cloud || 'auto';
         if (technologyContainersSelect) technologyContainersSelect.value = technologyContext.containers || 'auto';
         if (technologyInfrastructureSelect) technologyInfrastructureSelect.value = technologyContext.infrastructure || 'auto';
+        if (candidateProfileInput) candidateProfileInput.value = settings.candidateProfile || '';
+        if (targetJobProfileInput) targetJobProfileInput.value = settings.targetJobProfile || '';
         applyAppearance(settings.uiTheme || 'dark', !!settings.compactMode);
 
         // Handle icon selection
@@ -200,6 +204,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (responseModeSelect) settings.responseMode = responseModeSelect.value;
         if (uiThemeSelect) settings.uiTheme = uiThemeSelect.value;
         if (compactModeInput) settings.compactMode = compactModeInput.checked;
+        if (candidateProfileInput) settings.candidateProfile = candidateProfileInput.value;
+        if (targetJobProfileInput) settings.targetJobProfile = targetJobProfileInput.value;
         settings.technologyContext = {
             database: technologyDatabaseSelect?.value || 'auto', cloud: technologyCloudSelect?.value || 'auto',
             containers: technologyContainersSelect?.value || 'auto', infrastructure: technologyInfrastructureSelect?.value || 'auto'
@@ -259,7 +265,9 @@ document.addEventListener('DOMContentLoaded', () => {
         technologyDatabaseSelect,
         technologyCloudSelect,
         technologyContainersSelect,
-        technologyInfrastructureSelect
+        technologyInfrastructureSelect,
+        candidateProfileInput,
+        targetJobProfileInput
     ];
 
     inputs.forEach(input => {

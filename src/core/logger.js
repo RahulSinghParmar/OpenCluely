@@ -90,7 +90,7 @@ class Logger {
   redactSensitiveValues(value, keyName = '') {
     // Keep timing fields such as `firstTokenMs` observable while continuing to
     // redact credential-shaped keys such as `accessToken` and `apiKey`.
-    if (/(api.?key|subscription.?key|secret|password|authorization|token(?:key|value)?$|(?:^|[_-])token(?:$|[_-]))/i.test(keyName)) {
+    if (/(api.?key|subscription.?key|gemini.?key|azure.?key|secret|password|authorization|token(?:key|value)?$|(?:^|[_-])token(?:$|[_-]))/i.test(keyName)) {
       return '[REDACTED]';
     }
     if (Array.isArray(value)) {

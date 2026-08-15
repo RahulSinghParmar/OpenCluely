@@ -610,8 +610,23 @@ class SpeechService extends EventEmitter {
         this.speechConfig,
         this.audioConfig
       );
-      // Notify renderer only after the audio pipeline is ready.
-      this.emit('recording-started');
+      this._azureRecognitionStarted = false;
+
+      // Short domain phrases improve recognition of abbreviations that are
+      // common in technical-interview practice (especially ARP and VLAN) but
+      // are often misheard in ordinary dictation. This is a hint, not a
+      // restrictive grammar, so general questions still work normally.
+      if (sdk.PhraseListGrammar?.fromRecognizer) {
+        const phraseList = sdk.PhraseListGrammar.fromRecognizer(this.recognizer);
+        [
+          'ARP', 'ARP table', 'MAC address', 'IP address', 'subnet mask',
+          'default gateway', 'VLAN', 'DNS', 'DHCP', 'NAT', 'TCP/IP',
+          'BGP', 'OSPF', 'Linux', 'systemd', 'journalctl', 'Active Directory',
+          'EC2', 'VPC', 'S3', 'RAID', 'NIC', 'Power Supply Unit',
+          'Data Center Technician', 'Amazon Web Services'
+        ].forEach((phrase) => phraseList.addPhrase(phrase));
+        logger.debug('Added technical phrase bias to Azure recognizer');
+      }
     } catch (error) {
       logger.error('Failed to start Azure recording session', { error: error.message });
       this.emit('error', `Audio configuration failed: ${error.message}`);
@@ -673,19 +688,31 @@ class SpeechService extends EventEmitter {
       this.stopRecording();
     };
 
-    const startTimeout = setTimeout(() => {
-      logger.error('Recognition start timeout');
-      this.emit('error', 'Speech recognition start timeout. Please try again.');
+    // Start the renderer only after the SDK pipeline and event handlers are
+    // ready. On macOS, getUserMedia may take a few seconds to produce its
+    // first PCM buffer; Azure must not start listening before that buffer.
+    this.emit('recording-started');
+    this.emit('status', 'Preparing microphone…');
+    this._azureStartTimeout = setTimeout(() => {
+      if (this._azureRecognitionStarted || !this.isRecording) return;
+      logger.error('Microphone audio did not arrive before Azure start timeout');
+      this.emit('error', 'No microphone audio was received. Check macOS Microphone permission, then try again.');
       this.stopRecording();
     }, 10000);
+  }
+
+  _startAzureRecognitionAfterAudioReady() {
+    if (!this.isRecording || !this.recognizer || this._azureRecognitionStarted) return;
+    this._azureRecognitionStarted = true;
+    if (this._azureStartTimeout) {
+      clearTimeout(this._azureStartTimeout);
+      this._azureStartTimeout = null;
+    }
+    this.emit('status', 'Microphone ready — listening');
 
     this.recognizer.startContinuousRecognitionAsync(
-      () => {
-        clearTimeout(startTimeout);
-        logger.info('Continuous Azure speech recognition started successfully');
-      },
+      () => logger.info('Continuous Azure speech recognition started after microphone audio became ready'),
       (error) => {
-        clearTimeout(startTimeout);
         logger.error('Failed to start continuous recognition', { error: error.toString() });
         this.emit('error', `Recognition startup failed: ${error}`);
         this.isRecording = false;
@@ -822,13 +849,16 @@ class SpeechService extends EventEmitter {
     if (this.provider === 'azure' && this.pushStream) {
       try {
         this._rendererAudioChunkCount = (this._rendererAudioChunkCount || 0) + 1;
-        if (this._rendererAudioChunkCount === 1 || this._rendererAudioChunkCount % 50 === 0) {
-          logger.info('Renderer microphone audio received', {
+        // PCM arrives many times per second. Keep a sparse debug sample for
+        // diagnosis without turning normal recording into continuous disk I/O.
+        if (this._rendererAudioChunkCount === 1 || this._rendererAudioChunkCount % 500 === 0) {
+          logger.debug('Renderer microphone audio received', {
             chunks: this._rendererAudioChunkCount,
             bytes: buffer.length,
             rms: this._chunkRmsEnergy(buffer).toFixed(4),
           });
         }
+        this._startAzureRecognitionAfterAudioReady();
         this.pushStream.write(buffer);
       } catch (error) {
         logger.error('Error writing renderer audio to Azure push stream', {
@@ -1003,6 +1033,10 @@ class SpeechService extends EventEmitter {
     this.emit('stop-requested', { provider: this.provider, sessionDuration });
 
     if (this.provider === 'azure' && this.recognizer) {
+      if (!this._azureRecognitionStarted) {
+        this._finalizeStop('Recording stopped');
+        return;
+      }
       try {
         this.recognizer.stopContinuousRecognitionAsync(
           () => {
@@ -1069,6 +1103,11 @@ class SpeechService extends EventEmitter {
   }
 
   _cleanup() {
+    if (this._azureStartTimeout) {
+      clearTimeout(this._azureStartTimeout);
+      this._azureStartTimeout = null;
+    }
+    this._azureRecognitionStarted = false;
     if (this.segmentTimer) {
       clearInterval(this.segmentTimer);
       this.segmentTimer = null;
@@ -1843,6 +1882,7 @@ class SpeechService extends EventEmitter {
 
     if (this.provider === 'azure' && this.pushStream) {
       try {
+        this._startAzureRecognitionAfterAudioReady();
         this.pushStream.write(chunk);
       } catch (error) {
         logger.error('Error writing audio data to Azure push stream', { error: error.message });

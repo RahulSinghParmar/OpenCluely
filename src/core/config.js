@@ -1,9 +1,13 @@
 const path = require('path');
 const os = require('os');
+const packageMetadata = require('../../package.json');
 
 class ConfigManager {
   constructor() {
-    this.env = process.env.NODE_ENV || 'development';
+    // `NODE_ENV` is not reliably set by packaged Electron applications.
+    // Electron sets `process.defaultApp` only for `electron .`, so it gives us
+    // a safe production default without making local development cumbersome.
+    this.env = process.env.NODE_ENV || (process.defaultApp ? 'development' : 'production');
     this.appDataDir = path.join(os.homedir(), '.OpenCluely');
     this.loadConfiguration();
   }
@@ -12,7 +16,7 @@ class ConfigManager {
     this.config = {
       app: {
         name: 'OpenCluely',
-        version: '1.0.0',
+        version: packageMetadata.version,
         processTitle: 'OpenCluely',
         dataDir: this.appDataDir,
         isDevelopment: this.env === 'development',

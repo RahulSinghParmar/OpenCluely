@@ -122,6 +122,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onInteractionModeChanged: (callback) => ipcRenderer.on('interaction-mode-changed', callback),
   onRecordingStarted: (callback) => ipcRenderer.on('recording-started', callback),
   onRecordingStopped: (callback) => ipcRenderer.on('recording-stopped', callback),
+  onPracticeMuteState: (callback) => ipcRenderer.on('practice-mute-state', callback),
   onCodingLanguageChanged: (callback) => ipcRenderer.on('coding-language-changed', callback),
   onUiPreferencesChanged: (callback) => ipcRenderer.on('ui-preferences-changed', callback),
   onMainWindowShown: (callback) => ipcRenderer.on('main-window-shown', callback),

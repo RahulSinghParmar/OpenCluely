@@ -1,4 +1,8 @@
-const { desktopCapturer, screen, systemPreferences } = require('electron');
+const { desktopCapturer, screen, systemPreferences, nativeImage } = require('electron');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFile } = require('child_process');
 const logger = require('../core/logger').createServiceLogger('CAPTURE');
 
 class CaptureService {
@@ -84,6 +88,9 @@ class CaptureService {
       });
     } catch (error) {
       logger.error('Screen source enumeration failed', { reason: error.message });
+      if (process.platform === 'darwin') {
+        return this._captureWithMacOSNativeTool(targetDisplay, error.message);
+      }
       throw new Error(`Screen capture could not start: ${error.message}`);
     }
 
@@ -99,9 +106,21 @@ class CaptureService {
     });
     if (match) source = match;
 
-    const image = source.thumbnail;
+    let image = source.thumbnail;
     if (!image || image.isEmpty()) {
-      throw new Error('Screen capture returned an empty image. Enable Screen Recording for Electron in macOS Privacy & Security, then restart npm start.');
+      logger.warn('Electron returned an empty screen thumbnail', {
+        sourceCount: sources.length,
+        sources: sources.map((item) => ({
+          id: item.id,
+          name: item.name,
+          size: item.thumbnail?.getSize?.() || null,
+          empty: !item.thumbnail || item.thumbnail.isEmpty()
+        }))
+      });
+      if (process.platform === 'darwin') {
+        return this._captureWithMacOSNativeTool(targetDisplay, 'Electron returned an empty thumbnail');
+      }
+      throw new Error('Screen capture returned an empty image. Check screen-capture permission and try again.');
     }
 
     logger.debug('Screenshot captured successfully', {
@@ -118,6 +137,65 @@ class CaptureService {
         captureTime: new Date().toISOString()
       }
     };
+  }
+
+  /**
+   * macOS can grant Screen Recording permission while Electron's
+   * desktopCapturer still returns empty thumbnails (observed on Intel Macs
+   * with newer macOS releases). Use the OS-provided screencapture utility as
+   * a narrow fallback only in that state. It inherits the same macOS privacy
+   * permission and creates a temporary file that is removed immediately.
+   */
+  _captureWithMacOSNativeTool(targetDisplay, trigger) {
+    return new Promise((resolve, reject) => {
+      const displays = screen.getAllDisplays();
+      const displayIndex = Math.max(0, displays.findIndex((display) => display.id === targetDisplay.id));
+      const tempPath = path.join(os.tmpdir(), `opencluely-screen-${process.pid}-${Date.now()}.png`);
+      const cleanup = () => fs.unlink(tempPath, () => {});
+
+      execFile('/usr/sbin/screencapture', ['-x', '-t', 'png', '-D', String(displayIndex + 1), tempPath], {
+        timeout: 10000,
+        windowsHide: true
+      }, (error, _stdout, stderr) => {
+        if (error) {
+          cleanup();
+          logger.error('macOS native screenshot fallback failed', {
+            trigger,
+            error: error.message,
+            stderr: String(stderr || '').trim()
+          });
+          reject(new Error('Screen capture failed even though macOS reports permission granted. Fully quit Electron, re-enable Electron under Screen & System Audio Recording, then relaunch.'));
+          return;
+        }
+
+        try {
+          const image = nativeImage.createFromPath(tempPath);
+          cleanup();
+          if (!image || image.isEmpty()) {
+            throw new Error('macOS screencapture returned an empty image');
+          }
+          logger.info('Captured screenshot with macOS native fallback', {
+            trigger,
+            displayId: targetDisplay.id,
+            dimensions: image.getSize()
+          });
+          resolve({
+            image,
+            metadata: {
+              displayId: targetDisplay.id,
+              sourceName: 'macOS native screencapture fallback',
+              dimensions: image.getSize(),
+              captureTime: new Date().toISOString(),
+              fallback: true
+            }
+          });
+        } catch (readError) {
+          cleanup();
+          logger.error('Failed to read macOS native screenshot fallback', { error: readError.message, trigger });
+          reject(new Error(`Screen capture fallback failed: ${readError.message}`));
+        }
+      });
+    });
   }
 
   _getTargetDisplay(displayId) {

@@ -284,7 +284,9 @@ class WindowManager {
         nodeIntegration: false,
         contextIsolation: true,
         backgroundThrottling: false,
-        devTools: true, // Enable DevTools for debugging
+        // Do not expose DevTools in packaged builds. Local `electron .`
+        // development keeps them available through ConfigManager.
+        devTools: config.get('app.isDevelopment'),
       },
       show: false, // Never show during creation, use showOnCurrentDesktop instead
       title: windowConfig.title,
@@ -943,9 +945,11 @@ class WindowManager {
   }
 
   setupScreenCaptureAvailabilityWatcher() {
-    // Avoid screencast portal errors on Linux/Wayland by disabling periodic detection
-    if (process.platform === 'linux') {
-      logger.info('Skipping screen capture availability watcher on Linux to avoid portal screencast errors');
+    // Repeated desktopCapturer enumeration is not a reliable signal that a
+    // screen is being shared. It also triggers a Chromium DesktopMedia thread
+    // crash on some Intel Macs. Capture is still queried on an actual screenshot.
+    if (process.platform === 'linux' || process.platform === 'darwin') {
+      logger.info('Skipping periodic screen capture availability watcher on this platform');
       return;
     }
 

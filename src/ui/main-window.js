@@ -333,6 +333,11 @@ class MainWindowUI {
         }
 
         // Add click handler for microphone
+        this.micButton.addEventListener('pointerdown', () => {
+            // A direct click gives this non-editable toolbar keyboard focus,
+            // which is required for the local hold-Space mute control.
+            window.focus();
+        });
         this.micButton.addEventListener('click', async () => {
             if (this.isInteractive && this.speechAvailable) {
                 try {
@@ -354,6 +359,16 @@ class MainWindowUI {
                     component: 'MainWindowUI'
                 });
                 this.loadSpeechAvailability();
+            }
+        });
+
+        window.electronAPI?.onPracticeMuteState?.((_event, data) => {
+            const muted = !!data?.muted;
+            this.micButton?.classList.toggle('muted', muted);
+            if (this.micButton) {
+                this.micButton.title = muted
+                    ? 'Microphone paused — release Space to resume.'
+                    : 'Listening — hold Space to pause the microphone.';
             }
         });
 
@@ -501,7 +516,7 @@ class MainWindowUI {
 
     handleLLMResponse(data) {
         const skill = data.skill || data.metadata?.skill || 'General';
-        const skillNames = {
+        const fallbackSkillNames = {
             'dsa': 'DSA',
             'amazon-dct': 'Amazon DCT',
             'devops': 'DevOps',
@@ -519,7 +534,7 @@ class MainWindowUI {
             'negotiation': 'Negotiation'
         };
         
-        const displaySkill = skillNames[skill] || skill.toUpperCase();
+        const displaySkill = this.skillNames[skill] || fallbackSkillNames[skill] || skill.toUpperCase();
         
         logger.info('LLM response received', {
             component: 'MainWindowUI',
@@ -683,12 +698,18 @@ class MainWindowUI {
                 )
             });
             
+            // Use the current macOS default microphone in its native format.
+            // Forcing 16 kHz here can delay or silence capture on Intel Macs;
+            // `_to16kPcm` converts the stream safely for Azure below.
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
+                    // Keep macOS's native sample rate, then resample locally
+                    // for Azure. The processing hints improve voice isolation
+                    // without forcing the Intel-Mac 16 kHz capture mode that
+                    // has proven unreliable on some devices.
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true,
-                    sampleRate: { ideal: 16000 }
+                    autoGainControl: true
                 }
             });
             this._mediaStream = stream;
@@ -698,13 +719,12 @@ class MainWindowUI {
                 tracks: stream.getAudioTracks().map(track => ({
                     label: track.label,
                     enabled: track.enabled,
-                    readyState: track.readyState
+                    readyState: track.readyState,
+                    settings: typeof track.getSettings === 'function' ? track.getSettings() : {}
                 }))
             });
 
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                sampleRate: 16000
-            });
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             this._audioContext = audioContext;
             await audioContext.resume();
 
@@ -738,7 +758,15 @@ class MainWindowUI {
             };
 
             source.connect(scriptNode);
-            scriptNode.connect(audioContext.destination);
+            // ScriptProcessor nodes must be connected to remain active in
+            // Chromium, but routing the live microphone to the speakers can
+            // create feedback and contaminate recognition. Keep the processor
+            // alive through a muted gain node instead.
+            const silentGain = audioContext.createGain();
+            silentGain.gain.value = 0;
+            this._silentGain = silentGain;
+            scriptNode.connect(silentGain);
+            silentGain.connect(audioContext.destination);
 
             logger.info('Renderer audio capture started', {
                 component: 'MainWindowUI',
@@ -783,6 +811,10 @@ class MainWindowUI {
                 this._scriptNode.onaudioprocess = null;
                 this._scriptNode = null;
             }
+            if (this._silentGain) {
+                this._silentGain.disconnect();
+                this._silentGain = null;
+            }
             if (this._mediaStream) {
                 this._mediaStream.getTracks().forEach((track) => track.stop());
                 this._mediaStream = null;
@@ -804,7 +836,7 @@ class MainWindowUI {
     }
 
     updateSkillIndicator() {
-        const skillNames = {
+        const fallbackSkillNames = {
             'dsa': 'DSA',
             'amazon-dct': 'Amazon DCT',
             'devops': 'DevOps',
@@ -830,7 +862,7 @@ class MainWindowUI {
         
         if (!this.skillIndicator) return;
         
-        const skillName = this.skillNames[this.currentSkill] || skillNames[this.currentSkill] || this.currentSkill.toUpperCase();
+        const skillName = this.skillNames[this.currentSkill] || fallbackSkillNames[this.currentSkill] || this.currentSkill.toUpperCase();
         const skillSpan = this.skillIndicator.querySelector('span');
         
         logger.info('Looking for skill span element', {
@@ -920,7 +952,7 @@ class MainWindowUI {
     }
 
     showSkillChangeNotification(skill, direction) {
-        const skillNames = {
+        const fallbackSkillNames = {
             'dsa': 'DSA',
             'amazon-dct': 'Amazon DCT',
             'devops': 'DevOps',
@@ -938,7 +970,7 @@ class MainWindowUI {
             'negotiation': 'Negotiation'
         };
         
-        const displayName = skillNames[skill] || skill.toUpperCase();
+        const displayName = this.skillNames[skill] || fallbackSkillNames[skill] || skill.toUpperCase();
         const arrow = direction > 0 ? '↓' : '↑';
         
         // Create temporary notification

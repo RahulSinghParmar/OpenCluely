@@ -14,7 +14,7 @@ Practice technical, behavioral, and role-specific interviews with voice, chat, s
 </p>
 
 <a href="https://github.com/RahulSinghParmar/OpenCluely"><b>Repository</b></a> &nbsp;|&nbsp;
-<a href="#download">Download</a> &nbsp;|&nbsp;
+<a href="#builds">Builds</a> &nbsp;|&nbsp;
 <a href="#quick-start">Quick start</a> &nbsp;|&nbsp;
 <a href="#how-it-works">How it works</a>
 
@@ -26,38 +26,37 @@ https://github.com/user-attachments/assets/896a7140-1e85-405d-bfbe-e05c9f3a816b
 
 ## What it is
 
-OpenCluely is a desktop app for technical interviews and practice. It places a small overlay on your screen that recording and conferencing tools do not capture. You can speak a question or take a screenshot, and the AI answers in real time. The answer streams into a floating window and an optional chat panel, with clean code blocks and syntax highlighting.
+OpenCluely V3 beta is a local-first Universal Career Copilot for authorised interview practice and professional development. Choose a role pack, add your verified career and target-job context, then practise with chat, voice, screenshots, concise answers, and follow-up questions. Answers stream into a floating workspace and optional chat panel, with clean code blocks and syntax highlighting.
 
 It is free and open source. Application state and diagnostics remain local; Gemini and Azure receive only the requests required for the features you enable. Use it for preparation and only where external assistance is permitted.
 
-### Current release: v1.8.8
+### Current release: [v3.0.0-beta.1](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1)
 
-The current release adds a universal interview-skill catalogue, Amazon DCT practice, company and response-mode settings, streaming performance diagnostics, macOS Space/full-screen overlay behavior, improved Azure microphone handling, and safer log export. See [v1.8.8](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v1.8.8).
+V3 beta unifies the role catalogue, candidate/job context, response modes, technology focus, streaming performance diagnostics, Azure/Whisper voice input, and local settings persistence. Voice responses now render incrementally in both Chat and the floating response window.
 
 ## Highlights
 
-- **Invisible overlay.** Windows stay out of Zoom, Google Meet, Microsoft Teams, Discord, and OBS captures. You see the answer, the call does not.
-- **Hidden during screen share.** When a share starts, the app can hide every window on its own.
-- **Flexible local voice.** Choose manual start/stop capture or automatic voice-activity detection without fixed-timer sentence cuts.
-- **Configurable streamed answers.** Route voice replies to chat, the floating overlay, or both.
+- **Career workspace.** Keep a locally stored candidate profile and target-job context for truthful HR, role-fit, and behavioral practice.
+- **Responsive voice practice.** Azure Speech and local Whisper support microphone transcription; final transcripts render immediately and Gemini responses stream into Chat and the floating response window.
+- **Configurable answer routing.** Send voice replies to Chat, the floating response window, or both.
 - **Direct image analysis.** Screenshots go straight to Gemini for visual reasoning, with no slow OCR step in between.
 - **Session memory.** The whole conversation is remembered, so follow-ups, edge cases, and optimizations keep their context.
 - **Interview profiles.** Amazon DCT, DevOps, SDET, Backend Engineer, STAR, Leadership Principles, and 30+ additional skill profiles.
 - **Response modes.** Quick, interview-ready, detailed, STAR, and troubleshooting formats.
 - **Language aware.** Python, Java, JavaScript, TypeScript, Go, Rust, C, C++, C#, Kotlin, Swift, PHP, Ruby, Bash, and PowerShell.
 - **Local diagnostics.** View latency metrics, open logs, or copy redacted diagnostics from Settings.
-- **Cross platform.** Pre-built installers for Windows and Linux (.deb and AppImage). macOS runs from source in one command.
+- **Cross platform packages.** macOS DMG/ZIP, Windows NSIS installer, and Linux Debian/AppImage artifacts are produced from the same Electron Builder configuration.
 
-## Download
+## Builds
 
-Pre-built installers are published with every release. These links always point at the newest version.
+Download the V3 beta assets from the [v3.0.0-beta.1 release](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1). If an artifact is unavailable for a platform, run the source build with `npm start` instead.
 
 | Platform | File | Notes |
 |---|---|---|
-| Windows | [Setup .exe](https://github.com/RahulSinghParmar/OpenCluely/releases/latest) | NSIS installer. Adds a Start Menu shortcut. |
-| Linux (Debian or Ubuntu) | [.deb](https://github.com/RahulSinghParmar/OpenCluely/releases/latest) | Pulls system deps automatically (Python, ffmpeg, GTK). |
-| Linux (universal) | [.AppImage](https://github.com/RahulSinghParmar/OpenCluely/releases/latest) | No install. Run `chmod +x` then launch. |
-| macOS | [v1.8.8 release](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v1.8.8) | Source archives are available now; DMG/ZIP assets require a completed GitHub asset upload. |
+| Windows | [Setup .exe](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1) | NSIS installer when published from a Windows-capable build host. |
+| Linux (Debian or Ubuntu) | [.deb](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1) | Debian package when published from a Linux-capable build host. |
+| Linux (universal) | [.AppImage](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1) | Portable Linux package when published from a Linux-capable build host. |
+| macOS | [.dmg / .zip](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1) | Intel (`x64`) and Apple Silicon (`arm64`) packages. |
 
 > **macOS:** builds are currently unsigned and un-notarized. Run from source for the most reliable experience. When DMG/ZIP assets are attached to the release, macOS may require Finder’s **Open** confirmation on first launch.
 
@@ -175,12 +174,12 @@ Skills are now defined through a central catalog instead of a DSA-only model. Ev
 
 ### Done
 
-- Stealth overlay with a draggable command bar and a click through toggle
-- Hidden during screen share, with automatic hiding when a share begins
+- Draggable command bar and click-through toggle for a focused local workspace
 - Screenshot capture with direct Gemini analysis, no OCR step
 - Configurable manual or VAD-driven voice capture
 - Persistent local Whisper worker with optional CUDA acceleration and idle GPU release
 - Configurable chat/overlay routing for streamed voice answers
+- Incremental Gemini rendering in both Chat and the floating response window
 - Whisper hallucination filter that drops phantom phrases on silence
 - AI response window with markdown and syntax highlighting
 - Global shortcuts for capture, visibility, interaction, chat, and settings
@@ -190,16 +189,16 @@ Skills are now defined through a central catalog instead of a DSA-only model. Ev
 - Performance metrics and redacted diagnostic-log export
 - macOS panel-based overlay and chat behavior across Spaces and full-screen applications
 - Optional Azure Speech and local Whisper, with an auto hiding mic button
+- Persisted active role, language, company focus, response mode, appearance, candidate profile, and target job profile
 - Multi-monitor and area capture support
 - Window binding and positioning
-- Settings management with disguise and stealth modes
+- Persistent local settings and role-pack selection
 
 ### Planned
 
 - Multiple model backends alongside Gemini (OpenAI, Anthropic, local)
 - Auto typing of code snippets into editors and IDEs
 - Export of conversation history to markdown or PDF
-- Deeper stealth, including process name randomization
 - Optional local candidate-profile and document knowledge management (not shipped yet)
 
 ## Troubleshooting
@@ -227,7 +226,7 @@ Skills are now defined through a central catalog instead of a DSA-only model. Ev
 
 <summary> Limitations </summary>
 
-- **Screen-capture invisibility does not work on Linux.** The overlay stays hidden from screen shares and recordings only on **macOS** and **Windows**. This relies on Electron's `setContentProtection`, which maps to `NSWindowSharingNone` on macOS and `WDA_EXCLUDEFROMCAPTURE` on Windows. Electron provides **no equivalent on Linux** (neither X11 nor Wayland), so on Linux the call is a silent no-op and the overlay **will be visible** to anyone you screen-share with. This is a platform limitation, not a bug — there is no window flag on Linux that excludes a window from framebuffer capture. If you need capture-invisibility, run OpenCluely on macOS or Windows. As a partial workaround on Linux, share a single application window instead of your entire screen, or place the overlay on a monitor you are not sharing.
+- **Visibility is not guaranteed.** Do not rely on any desktop overlay to be absent from screen shares, recordings, remote-management tools, proctoring, or employer monitoring. Close the application during an interview unless the employer explicitly permits its use.
 
 </details>
 

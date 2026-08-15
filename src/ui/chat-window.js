@@ -111,8 +111,6 @@ class ChatWindowUI {
             
             window.electronAPI.onSpeechStatus((event, data) => {
                 if (data && data.status) {
-                    this.addMessage(data.status, 'system');
-                    
                     // Update recording state based on status
                     if (data.status.includes('started') || data.status.includes('Recording')) {
                         this.handleRecordingStarted();
@@ -127,6 +125,12 @@ class ChatWindowUI {
                     this.addMessage(`Speech Error: ${data.error}`, 'error');
                     this.handleRecordingStopped(); // Stop recording on error
                 }
+            });
+
+            window.electronAPI.onPracticeMuteState?.((_event, data) => {
+                this.addMessage(data?.muted
+                    ? 'Microphone paused — release Space to resume.'
+                    : 'Microphone resumed.', 'system');
             });
             
             // Skill handlers
@@ -287,15 +291,10 @@ class ChatWindowUI {
             // Hide listening animation first
             this.hideListeningAnimation();
             
-            // Show transcribed text with a slight delay for smooth transition
-            setTimeout(() => {
-                this.addMessage(text, 'transcription');
-                
-                // Show thinking indicator after transcription
-                setTimeout(() => {
-                    this.showThinkingIndicator();
-                }, 300);
-            }, 200);
+            // A final Azure result is already stable. Render it immediately;
+            // cosmetic delays make voice input feel unresponsive.
+            this.addMessage(text, 'transcription');
+            this.showThinkingIndicator();
             
             logger.debug('Transcription received in chat', { textLength: text.length });
         } else {

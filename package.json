@@ -1,7 +1,7 @@
 {
   "name": "opencluely",
-  "version": "1.8.8",
-  "description": "AI Problem Solving Assistant",
+  "version": "3.0.0-beta.1",
+  "description": "Universal Career Copilot for authorised interview practice and professional development",
   "main": "main.js",
   "scripts": {
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
@@ -21,6 +21,7 @@
   },
   "author": {
     "name": "RahulSinghParmar",
+    "email": "rahulsinghparmar4@protonmail.com",
     "url": "https://github.com/RahulSinghParmar"
   },
   "repository": {
@@ -164,7 +165,7 @@
       "artifactName": "OpenCluely-Setup-${version}.${ext}"
     },
     "dmg": {
-      "title": "OpenCluely Interview Assistant",
+      "title": "OpenCluely Career Copilot",
       "backgroundColor": "#000000",
       "window": {
         "width": 600,

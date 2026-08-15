@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Settings</title>
+    <title>OpenCluely Career Copilot Settings</title>
     <link href="./src/styles/common.css" rel="stylesheet">
     <style>
         * {
@@ -285,6 +285,14 @@
         .settings-note code {
             color: rgba(255, 255, 255, 0.9);
         }
+
+        textarea.input-field.profile-textarea {
+            min-height: 96px;
+            max-width: 100%;
+            resize: vertical;
+            font-family: inherit;
+            line-height: 1.45;
+        }
     </style>
 </head>
 <body>
@@ -292,7 +300,7 @@
         <div class="settings-header">
             <div class="header-title">
                 <i class="fas fa-cog"></i>
-                Settings
+                Career Copilot Settings <span style="opacity: .55; font-size: 11px; font-weight: 500;">V3 beta</span>
             </div>
             <div class="header-actions">
                 <button class="btn btn-quit" id="quitButton">
@@ -338,8 +346,8 @@
                     </div>
                     <div class="settings-item">
                         <div>
-                            <div class="settings-item-label">Active Skill</div>
-                            <div class="settings-item-description">Choose your current focus area</div>
+                            <div class="settings-item-label">Career Focus</div>
+                            <div class="settings-item-description">Choose a role pack or a preparation tool. Your selection is saved locally.</div>
                         </div>
                         <select class="input-field" id="activeSkill">
                             <option value="dsa">Data Structures & Algorithms</option>
@@ -423,6 +431,17 @@
                     <div class="settings-item">
                         <div><div class="settings-item-label">Infrastructure Focus</div><div class="settings-item-description">Optional automation and delivery-tool context.</div></div>
                         <select class="input-field" id="technologyInfrastructure"><option value="auto">Auto-detect</option><option value="terraform">Terraform</option><option value="ansible">Ansible</option><option value="jenkins">Jenkins</option><option value="github-actions">GitHub Actions</option></select>
+                    </div>
+                    <div class="settings-stack">
+                        <div class="settings-item-label">Candidate Profile <span style="opacity: .65; font-weight: normal;">(optional)</span></div>
+                        <div class="settings-item-description">Paste a concise resume summary, real projects, and measurable results. Used only for personal, HR, STAR, and behavioral practice answers.</div>
+                        <textarea class="input-field profile-textarea" id="candidateProfile" maxlength="12000" placeholder="Example: Network engineer with hands-on LAN, VLAN, AD, firewall, monitoring, and incident-response experience. Include only facts you can stand behind."></textarea>
+                    </div>
+                    <div class="settings-stack">
+                        <div class="settings-item-label">Target Job Profile <span style="opacity: .65; font-weight: normal;">(optional)</span></div>
+                        <div class="settings-item-description">Paste the role title, selected job requirements, or a short job-description summary. It helps role-fit answers without restricting general technical questions.</div>
+                        <textarea class="input-field profile-textarea" id="targetJobProfile" maxlength="12000" placeholder="Example: Amazon Data Center Technician — hardware break/fix, Linux, networking, rack-and-stack, safety, and shift work."></textarea>
+                        <div class="settings-note">Stored locally on this Mac. It is sent to Gemini only when a question requires personal or target-role context.</div>
                     </div>
                 </div>
             </div>
