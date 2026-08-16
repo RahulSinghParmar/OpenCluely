@@ -1,6 +1,6 @@
 {
   "name": "opencluely",
-  "version": "3.0.0-beta.2",
+  "version": "3.0.0-beta.3",
   "description": "Universal Career Copilot for authorised interview practice and professional development",
   "main": "main.js",
   "scripts": {
