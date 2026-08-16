@@ -1,7 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const { fileURLToPath } = require("url");
-const { app, BrowserWindow, globalShortcut, session, ipcMain } = require("electron");
+const { app, BrowserWindow, globalShortcut, session, ipcMain, systemPreferences } = require("electron");
 
 // ── Resolve a stable .env location ──
 // In packaged builds process.cwd() is unstable and frequently read-only
@@ -616,6 +616,22 @@ class ApplicationController {
   ipcMain.handle("get-speech-availability", () => {
       return speechService.isAvailable ? speechService.isAvailable() : false;
   });
+
+    // Explicitly ask macOS from the packaged app's own identity before the
+    // renderer opens the microphone. Development runs remain separate under
+    // Electron, while the installed build is registered as OpenCluely.
+    ipcMain.handle("ensure-microphone-access", async () => {
+      if (process.platform !== "darwin" || !systemPreferences?.getMediaAccessStatus) {
+        return { granted: true, status: "not-applicable" };
+      }
+      const status = systemPreferences.getMediaAccessStatus("microphone");
+      if (status === "granted") return { granted: true, status };
+      if (status === "not-determined") {
+        const granted = await systemPreferences.askForMediaAccess("microphone");
+        return { granted, status: systemPreferences.getMediaAccessStatus("microphone") };
+      }
+      return { granted: false, status };
+    });
 
     ipcMain.handle("get-skill-catalog", () => skillCatalog.map(({ id, name, category, knowledgeScope, responseStyle, displayFormat, latencyPreferences, languagePreferences }) => ({ id, name, category, knowledgeScope, responseStyle, displayFormat, latencyPreferences, languagePreferences })));
 

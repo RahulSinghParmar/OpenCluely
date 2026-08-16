@@ -344,8 +344,10 @@ class MainWindowUI {
                     const status = this.isRecording
                         ? await window.electronAPI.stopSpeechRecognition()
                         : await window.electronAPI.startSpeechRecognition();
-                    if (status?.isRecording) this.handleRecordingStarted();
-                    else this.handleRecordingStopped();
+                    // The main process broadcasts recording-started/stopped.
+                    // Calling the handlers here as well opened two concurrent
+                    // renderer microphone streams for a single click.
+                    if (!status?.isRecording) this.handleRecordingStopped();
                 } catch (error) {
                     logger.error('Speech recognition toggle failed', {
                         component: 'MainWindowUI',
@@ -697,6 +699,11 @@ class MainWindowUI {
                     navigator.mediaDevices.getUserMedia
                 )
             });
+
+            const macPermission = await window.electronAPI?.ensureMicrophoneAccess?.();
+            if (macPermission && !macPermission.granted) {
+                throw new Error(`Microphone permission is ${macPermission.status}. Enable OpenCluely in System Settings → Privacy & Security → Microphone, then restart the app.`);
+            }
             
             // Use the current macOS default microphone in its native format.
             // Forcing 16 kHz here can delay or silence capture on Intel Macs;

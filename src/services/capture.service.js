@@ -73,7 +73,9 @@ class CaptureService {
       const status = systemPreferences.getMediaAccessStatus('screen');
       logger.info('macOS Screen Recording permission status', { status });
       if (status === 'denied' || status === 'restricted') {
-        throw new Error('Screen Recording permission is not enabled for Electron. Open System Settings → Privacy & Security → Screen & System Audio Recording, enable Electron, then restart npm start.');
+        const appIdentity = process.defaultApp ? 'Electron (development)' : 'OpenCluely';
+        const restartTarget = process.defaultApp ? 'npm start' : 'OpenCluely';
+        throw new Error(`Screen Recording permission is not enabled for ${appIdentity}. Open System Settings → Privacy & Security → Screen & System Audio Recording, enable ${appIdentity}, then fully quit and restart ${restartTarget}.`);
       }
     }
 

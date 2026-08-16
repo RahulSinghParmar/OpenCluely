@@ -30,7 +30,7 @@ OpenCluely V3 beta is a local-first Universal Career Copilot for authorised inte
 
 It is free and open source. Application state and diagnostics remain local; Gemini and Azure receive only the requests required for the features you enable. Use it for preparation and only where external assistance is permitted.
 
-### Current release: [v3.0.0-beta.1](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1)
+### Current release: [v3.0.0-beta.2](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.2)
 
 V3 beta unifies the role catalogue, candidate/job context, response modes, technology focus, streaming performance diagnostics, Azure/Whisper voice input, and local settings persistence. Voice responses now render incrementally in both Chat and the floating response window.
 
@@ -49,14 +49,14 @@ V3 beta unifies the role catalogue, candidate/job context, response modes, techn
 
 ## Builds
 
-Download the V3 beta assets from the [v3.0.0-beta.1 release](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1). If an artifact is unavailable for a platform, run the source build with `npm start` instead.
+Download the V3 beta assets from the [v3.0.0-beta.2 release](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.2). If an artifact is unavailable for a platform, run the source build with `npm start` instead.
 
 | Platform | File | Notes |
 |---|---|---|
-| Windows | [Setup .exe](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1) | NSIS installer when published from a Windows-capable build host. |
-| Linux (Debian or Ubuntu) | [.deb](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1) | Debian package when published from a Linux-capable build host. |
-| Linux (universal) | [.AppImage](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1) | Portable Linux package when published from a Linux-capable build host. |
-| macOS | [.dmg / .zip](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.1) | Intel (`x64`) and Apple Silicon (`arm64`) packages. |
+| Windows | [Setup .exe](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.2) | NSIS installer when published from a Windows-capable build host. |
+| Linux (Debian or Ubuntu) | [.deb](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.2) | Debian package when published from a Linux-capable build host. |
+| Linux (universal) | [.AppImage](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.2) | Portable Linux package when published from a Linux-capable build host. |
+| macOS | [.dmg / .zip](https://github.com/RahulSinghParmar/OpenCluely/releases/tag/v3.0.0-beta.2) | Intel (`x64`) and Apple Silicon (`arm64`) packages. |
 
 > **macOS:** builds are currently unsigned and un-notarized. Run from source for the most reliable experience. When DMG/ZIP assets are attached to the release, macOS may require Finder’s **Open** confirmation on first launch.
 
